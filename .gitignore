@@ -1,0 +1,69 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# IDE and Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build and dist directories
+dist/
+build/
+coverage/
+
+# Temporary files
+tmp/
+temp/
+%temp%/
+
+# Prisma
+/prisma/*.db
+/prisma/migrations/*/
+
+# Uploaded files and media
+/uploads/*
+!/uploads/.gitkeep
+/uploads/assignments/*
+!/uploads/assignments/.gitkeep
+/uploads/mcq-images/*
+!/uploads/mcq-images/.gitkeep
+/uploads/notes/*
+!/uploads/notes/.gitkeep
+/uploads/profile-images/*
+!/uploads/profile-images/.gitkeep
+/uploads/student-requests/*
+!/uploads/student-requests/.gitkeep
+/uploads/submissions/*
+!/uploads/submissions/.gitkeep
+/uploads/syllabi/*
+!/uploads/syllabi/.gitkeep
+/uploads/tests/*
+!/uploads/tests/.gitkeep
+
+# Cache directories
+.cache/
+.npm/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Debug files
+.debug/
+debug.log

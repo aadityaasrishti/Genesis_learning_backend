@@ -1,0 +1,725 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  user_id           Int                @id @default(autoincrement())
+  email             String             @unique
+  password          String
+  name              String
+  mobile            String
+  role              String?
+  class             String?            // Added field
+  subjects          String?            // Added field
+  requested_class   String?            // Added field for tracking requested class changes
+  requested_subjects String?           // Added field for tracking requested subject changes
+  guardian_name     String?            // Added field
+  plan_status       String?            @default("demo")
+  demo_user_flag    Boolean            @default(true)
+  profile_image_url String?            // Added field for profile picture/avatar
+  created_at        DateTime           @default(now())
+  updated_at        DateTime           @updatedAt
+  last_login        DateTime?
+  is_active         Boolean            @default(true)
+  inactivation_date DateTime?
+  adminSupportStaff AdminSupportStaff?
+  teacher           Teacher?
+  student           Student?
+  inactiveUser      InactiveUser? 
+  attendances       Attendance[] @relation(name: "UserAttendance") // For user attendance
+  recordedAttendances Attendance[] @relation(name: "RecorderAttendance") // For recorded attendance
+  extra_classes_teaching ExtraClass[] @relation("TeacherExtraClass") // For classes they teach
+  extra_classes_created ExtraClass[] @relation("CreatorExtraClass") // For classes they created
+  notifications     Notification[]     // Added the missing relation field
+  student_requests    StudentRequest[]
+  assigned_tasks      TeacherTask[]    @relation("AssignedTasks")
+  created_tasks       TeacherTask[]    @relation("CreatedTasks")
+  given_feedback     Feedback[] @relation("GivenFeedback")
+  received_feedback  Feedback[] @relation("ReceivedFeedback")
+  created_assignments Assignment[] @relation("TeacherAssignments")
+  assignment_submissions AssignmentSubmission[]
+  exam_notifications ExamNotification[] // Add relation to ExamNotification
+  created_fee_payments FeePayment[] @relation("CreatedFeePayments")
+  teacher_salary   TeacherSalary[] @relation("TeacherSalary")
+  salary_payments  SalaryPayment[] @relation("TeacherPayments")
+  created_tests TestSubmission[] @relation("StudentTestSubmissions")
+  test_submissions Test[] @relation("CreatedTests")
+  teacher_notes Notes[] @relation("TeacherNotes")
+  admin_approvals NotesApproval[] @relation("AdminApprovals")
+  created_mcqs          MCQQuestion[]        @relation("TeacherMCQs")
+  mcq_sessions         MCQSession[]         @relation("StudentMCQSessions")
+  created_expenses  Expenditure[] @relation("CreatedExpenses")
+  approved_expenses Expenditure[] @relation("ApprovedExpenses")
+  exam_results     ExamResult[]  // Add relation for exam results
+  class_schedules ClassSchedule[] @relation("TeacherSchedules")
+  student_progress StudentProgress[] @relation("StudentProgress") // Add this line
+  daily_challenges      DailyChallenge[]        @relation("TeacherDailyChallenges")
+  challenge_submissions DailyChallengeSubmission[] @relation("StudentDailyChallenges")
+
+  @@index([created_at])
+}
+
+model InactiveUser {
+  id                Int      @id @default(autoincrement())
+  user_id           Int      @unique
+  original_role     String
+  inactivation_date DateTime @default(now())
+  role_data         Json
+  user              User     @relation(fields: [user_id], references: [user_id])
+
+  @@index([user_id])
+}
+
+model AdminSupportStaff {
+  id         Int    @id @default(autoincrement())
+  user_id    Int    @unique
+  department String
+  salary     Float
+  mobile     String
+  user       User   @relation(fields: [user_id], references: [user_id])
+}
+
+model Teacher {
+  id             Int    @id @default(autoincrement())
+  user_id        Int    @unique
+  subject        String
+  class_assigned String
+  mobile         String
+  salary         Float?
+  user            User      @relation(fields: [user_id], references: [user_id])
+}
+
+model Attendance {
+  user_id        Int      
+  date           DateTime 
+  subject        String
+  status         AttendanceStatus
+  recorded_by    Int
+  extra_class_id Int?
+  created_at     DateTime @default(now())
+  
+  user           User @relation(name: "UserAttendance", fields: [user_id], references: [user_id])
+  recorder       User @relation(name: "RecorderAttendance", fields: [recorded_by], references: [user_id])
+  extra_class    ExtraClass? @relation(fields: [extra_class_id], references: [id])
+
+  @@id([user_id, date, subject])
+  @@index([user_id])
+  @@index([date])
+  @@index([extra_class_id])
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+}
+
+model Student {
+  id              Int       @id @default(autoincrement())
+  user_id         Int       @unique
+  class_id        String
+  enrollment_date DateTime  @default(now())
+  mobile          String
+  guardian_name   String
+  guardian_mobile String
+  subjects        String?
+  address         String?
+  date_of_birth   DateTime?
+  fee_structure   FeeStructure? @relation(fields: [fee_structure_id], references: [id])
+  fee_structure_id Int?
+  fee_due_date    DateTime?  // Added field for monthly fee due date
+  user            User      @relation(fields: [user_id], references: [user_id])
+  fee_payments    FeePayment[]
+  fee_reminders   FeeReminder[]
+
+  @@index([class_id])
+  @@index([fee_structure_id])
+  @@index([fee_due_date]) // Add index for fee_due_date
+}
+
+model Holiday {
+  id          Int       @id @default(autoincrement())
+  date        DateTime
+  name        String
+  description String?
+  type        String    // 'HOLIDAY', 'SPECIAL_EVENT', etc.
+  color       String?   // For calendar display
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  @@index([date])
+}
+
+model ExtraClass {
+  id          Int      @id @default(autoincrement())
+  class_id    String
+  subject     String
+  teacher_id  Int
+  created_by  Int      // Making it required now
+  date        DateTime
+  start_time  String
+  end_time    String
+  description String?
+  created_at  DateTime @default(now())
+  
+  teacher     User     @relation("TeacherExtraClass", fields: [teacher_id], references: [user_id])
+  creator     User    @relation("CreatorExtraClass", fields: [created_by], references: [user_id])
+  attendances Attendance[]
+
+  @@index([class_id])
+  @@index([teacher_id])
+  @@index([created_by])
+}
+
+model Notification {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  message    String
+  type       String   // 'extra_class', 'attendance', 'system'
+  created_at DateTime @default(now())
+  is_read    Boolean  @default(false)
+  user       User     @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([created_at])
+}
+
+model StudentRequest {
+  id          Int      @id @default(autoincrement())
+  student_id  Int
+  title       String
+  description String   @db.Text
+  type        String   // 'EXTRA_CLASS', 'EXAM_NOTIFICATION', 'OTHER'
+  image_url   String?
+  status      String   @default("PENDING") // 'PENDING', 'APPROVED', 'REJECTED'
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  student     User     @relation(fields: [student_id], references: [user_id])
+
+  @@index([student_id])
+  @@index([created_at])
+}
+
+model TeacherTask {
+  id           Int      @id @default(autoincrement())
+  teacher_id   Int
+  assigned_by  Int
+  title        String
+  description  String   @db.Text
+  due_date     DateTime
+  priority     String   @default("MEDIUM") // 'HIGH', 'MEDIUM', 'LOW'
+  status       String   @default("PENDING") // 'PENDING', 'IN_PROGRESS', 'COMPLETED'
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now())
+  
+  teacher      User     @relation("AssignedTasks", fields: [teacher_id], references: [user_id])
+  assigner     User     @relation("CreatedTasks", fields: [assigned_by], references: [user_id])
+
+  @@index([teacher_id])
+  @@index([assigned_by])
+}
+
+model Feedback {
+  id          Int      @id @default(autoincrement())
+  from_id     Int      // User giving feedback
+  to_id       Int      // User receiving feedback
+  message     String   @db.Text
+  rating      Int      @default(0)  // Optional rating (1-5)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  is_deleted  Boolean  @default(false)
+
+  from_user   User     @relation("GivenFeedback", fields: [from_id], references: [user_id])
+  to_user     User     @relation("ReceivedFeedback", fields: [to_id], references: [user_id])
+
+  @@index([from_id])
+  @@index([to_id])
+  @@index([created_at(sort: Desc)])
+  @@index([is_deleted])
+  @@index([from_id, created_at(sort: Desc), is_deleted])  // Composite index for common query pattern
+  @@index([to_id, created_at(sort: Desc), is_deleted])    // Composite index for common query pattern
+}
+
+model Assignment {
+  id               Int                   @id @default(autoincrement())
+  teacher_id       Int
+  title            String
+  description      String                @db.Text
+  class_id         String
+  subject          String
+  due_date         DateTime
+  created_at       DateTime              @default(now())
+  updated_at       DateTime              @updatedAt
+  assigned_students String
+  file_url         String?
+  submissions      AssignmentSubmission[]
+  teacher          User                  @relation("TeacherAssignments", fields: [teacher_id], references: [user_id])
+
+  @@index([teacher_id])
+  @@index([class_id])
+  @@index([due_date])
+}
+
+model AssignmentSubmission {
+  id            Int      @id @default(autoincrement())
+  assignment_id Int
+  student_id    Int
+  file_url      String?
+  text_response String?  @db.Text
+  submitted_at  DateTime @default(now())
+  grade         Float?    // Adding grade field
+  teacher_comment String? @db.Text  // Adding teacher's comment field
+  graded_at     DateTime?  // Adding when the submission was graded
+  
+  assignment    Assignment @relation(fields: [assignment_id], references: [id])
+  student       User       @relation(fields: [student_id], references: [user_id])
+
+  @@index([assignment_id])
+  @@index([student_id])
+}
+
+model ExamNotification {
+  id           Int      @id @default(autoincrement())
+  student_id   Int
+  subject      String
+  title        String
+  exam_date    DateTime
+  description  String   @db.Text
+  syllabus_url String?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now())
+
+  student      User     @relation(fields: [student_id], references: [user_id])
+  
+  @@index([student_id])
+  @@index([exam_date])
+}
+
+model FeeStructure {
+  id              Int      @id @default(autoincrement())
+  class_id        String
+  subject         String?
+  amount          Float
+  payment_type    PaymentType
+  valid_from      DateTime
+  valid_until     DateTime?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  payments        FeePayment[]
+  students        Student[]    // Add the opposite relation field
+}
+
+model FeePayment {
+  id                Int       @id @default(autoincrement())
+  student_id        Int
+  fee_structure_id  Int
+  amount_paid       Float
+  payment_date      DateTime  @default(now())
+  payment_mode      PaymentMode
+  transaction_id    String?
+  receipt_number    String    @unique
+  payment_status    PaymentStatus
+  due_date         DateTime
+  late_fee         Float?
+  discount_amount   Float?
+  discount_reason   String?
+  month            DateTime  @default(now()) // Make required and add default
+  created_by       Int
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @default(now())
+  
+  student          Student   @relation(fields: [student_id], references: [user_id])
+  fee_structure    FeeStructure @relation(fields: [fee_structure_id], references: [id])
+  creator          User      @relation("CreatedFeePayments", fields: [created_by], references: [user_id])
+
+  @@index([student_id])
+  @@index([fee_structure_id])
+  @@index([month])  // Add index on month field
+}
+
+model FeeReminder {
+  id              Int      @id @default(autoincrement())
+  student_id      Int
+  payment_id      Int?
+  reminder_date   DateTime @default(now())
+  reminder_type   ReminderType
+  message         String
+  status          String
+  
+  student         Student  @relation(fields: [student_id], references: [user_id])
+
+  @@index([student_id])
+}
+
+model TeacherSalary {
+  id                   Int            @id @default(autoincrement())
+  teacher_id          Int
+  salary_type         SalaryType
+  base_amount         Float?
+  class_specific_rates String?        // JSON string storing class-wise rates
+  effective_from      DateTime
+  effective_until     DateTime?
+  created_at         DateTime       @default(now())
+  updated_at         DateTime       @updatedAt
+  teacher            User          @relation("TeacherSalary", fields: [teacher_id], references: [user_id])
+  salary_payments    SalaryPayment[]
+  
+  @@index([teacher_id])
+}
+
+model SalaryPayment {
+  id              Int       @id @default(autoincrement())
+  teacher_id      Int
+  salary_id       Int
+  amount          Float
+  month           String    // Month name in "Month YYYY" format
+  commission_details Json?  // Stores details of student count and commission calculation
+  payment_date    DateTime  @default(now())
+  payment_status  PaymentStatus
+  payment_mode    PaymentMode
+  transaction_id  String?
+  remarks         String?
+  
+  teacher         User          @relation("TeacherPayments", fields: [teacher_id], references: [user_id])
+  teacher_salary  TeacherSalary @relation(fields: [salary_id], references: [id])
+  
+  @@index([teacher_id])
+  @@index([salary_id])
+}
+
+model Test {
+  id               Int              @id @default(autoincrement())
+  title            String
+  description      String          @db.Text
+  type             String          // 'PDF' or 'TEXT'
+  content          String          @db.Text
+  duration         Int             // in minutes
+  startTime        DateTime        // Now required
+  subject          String
+  class_id         String
+  created_by       Int
+  assignedStudents String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  submissions      TestSubmission[]
+  creator          User            @relation("CreatedTests", fields: [created_by], references: [user_id])
+
+  @@index([created_by])
+  @@index([class_id])
+  @@index([startTime])
+}
+
+model TestSubmission {
+  id          Int       @id @default(autoincrement())
+  test_id     Int
+  student_id  Int
+  content     String
+  grade       Float?
+  feedback    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt @default(now())
+  isLate      Boolean?  
+  test        Test      @relation(fields: [test_id], references: [id])
+  student     User      @relation("StudentTestSubmissions", fields: [student_id], references: [user_id])
+
+  @@index([test_id])
+  @@index([student_id])
+  @@index([createdAt])
+}
+
+model Notes {
+  id          Int       @id @default(autoincrement())
+  teacher_id  Int
+  class_id    String
+  subject     String
+  topic       String
+  description String    @db.Text
+  file_url    String
+  file_type   FileType
+  status      NoteStatus @default(PENDING)
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  approval    NotesApproval?
+  teacher     User      @relation("TeacherNotes", fields: [teacher_id], references: [user_id])
+
+  @@index([teacher_id])
+  @@index([class_id])
+  @@index([subject])
+  @@index([status])
+}
+
+model NotesApproval {
+  id          Int       @id @default(autoincrement())
+  notes_id    Int       @unique
+  admin_id    Int
+  status      NoteStatus
+  remarks     String?   @db.Text
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  notes       Notes     @relation(fields: [notes_id], references: [id])
+  admin       User      @relation("AdminApprovals", fields: [admin_id], references: [user_id])
+
+  @@index([admin_id])
+}
+
+model MCQQuestion {
+  id              Int      @id @default(autoincrement())
+  class_id        String
+  subject         String
+  chapter         String
+  question_text   String   @db.Text
+  image_url       String?  // Optional image for the question
+  options         Json     // Array of options
+  correct_answer  Int      // Index of correct option (0-based)
+  created_by      Int
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  
+  teacher         User     @relation("TeacherMCQs", fields: [created_by], references: [user_id])
+  sessions        MCQSessionQuestion[]
+
+  @@index([class_id])
+  @@index([subject])
+  @@index([chapter])
+  @@index([created_by])
+}
+
+model MCQSession {
+  id              Int      @id @default(autoincrement())
+  student_id      Int
+  class_id        String
+  subject         String
+  chapter         String
+  start_time      DateTime @default(now())
+  end_time        DateTime?
+  duration        Int      // in seconds
+  correct_count   Int      @default(0)
+  incorrect_count Int      @default(0)
+  skipped_count   Int      @default(0)  
+  last_question_index Int  @default(0) // Add default value
+  
+  student         User     @relation("StudentMCQSessions", fields: [student_id], references: [user_id])
+  questions       MCQSessionQuestion[]
+
+  @@index([student_id])
+  @@index([class_id])
+  @@index([subject])
+  @@index([chapter])
+}
+
+model MCQSessionQuestion {
+  id              Int      @id @default(autoincrement())
+  session_id      Int
+  question_id     Int
+  selected_answer Int?     // Index of selected option (0-based)
+  is_correct      Boolean?
+  answered_at     DateTime?
+  
+  session         MCQSession  @relation(fields: [session_id], references: [id])
+  question        MCQQuestion @relation(fields: [question_id], references: [id])
+
+  @@index([session_id])
+  @@index([question_id])
+}
+
+model StudentProgress {
+  id          Int      @id @default(autoincrement())
+  student_id  Int
+  class_id    String
+  subject     String
+  chapter     String
+  last_question_index Int @default(0)
+  last_attempted DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  student     User    @relation("StudentProgress", fields: [student_id], references: [user_id])
+
+  @@unique([student_id, class_id, subject, chapter])
+  @@index([student_id])
+  @@index([class_id])
+  @@index([subject])
+}
+
+model DailyChallenge {
+  id              Int      @id @default(autoincrement())
+  teacher_id      Int
+  class_id        String
+  subject         String
+  title           String
+  questions       Json     // Array of {question: string, type: "MCQ"|"SUBJECTIVE", options?: string[], correctAnswer?: number}
+  created_at      DateTime @default(now())
+  date            DateTime @default(now())
+  
+  teacher         User     @relation("TeacherDailyChallenges", fields: [teacher_id], references: [user_id])
+  submissions     DailyChallengeSubmission[]
+
+  @@index([teacher_id])
+  @@index([class_id])
+  @@index([subject])
+  @@index([date])
+}
+
+model DailyChallengeSubmission {
+  id          Int      @id @default(autoincrement())
+  challenge_id Int
+  student_id  Int
+  answers     Json     // Array of {questionIndex: number, answer: string|number}
+  score       Float?
+  submitted_at DateTime @default(now())
+  
+  challenge   DailyChallenge @relation(fields: [challenge_id], references: [id])
+  student     User          @relation("StudentDailyChallenges", fields: [student_id], references: [user_id])
+
+  @@index([challenge_id])
+  @@index([student_id])
+}
+
+enum FileType {
+  PDF
+  DOCX
+  VIDEO
+}
+
+enum NoteStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PaymentType {
+  ONE_TIME
+  INSTALLMENT
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum PaymentMode {
+  CASH
+  CHEQUE
+  ONLINE
+  BANK_TRANSFER
+  UPI
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  PARTIALLY_PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum ReminderType {
+  DUE_DATE
+  OVERDUE
+  FINAL_NOTICE
+}
+
+enum SalaryType {
+  FIXED
+  COMMISSION_BASED
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model ExpenseCategory {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  expenses    Expenditure[]
+
+  @@index([name])
+}
+
+model Expenditure {
+  id              Int           @id @default(autoincrement())
+  category_id     Int
+  amount          Float
+  description     String        @db.Text
+  receipt_url     String?
+  expense_date    DateTime
+  payment_mode    PaymentMode
+  transaction_id  String?
+  status         ExpenseStatus @default(PENDING)
+  created_by      Int
+  approved_by     Int?
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+  remarks        String?      @db.Text
+
+  category        ExpenseCategory @relation(fields: [category_id], references: [id])
+  creator         User           @relation("CreatedExpenses", fields: [created_by], references: [user_id])
+  approver        User?          @relation("ApprovedExpenses", fields: [approved_by], references: [user_id])
+
+  @@index([category_id])
+  @@index([created_by])
+  @@index([approved_by])
+  @@index([expense_date])
+  @@index([status])
+}
+
+model ExamResult {
+  id          Int      @id @default(autoincrement())
+  student_id  Int
+  subject     String
+  exam_type   String   // "UNIT_TEST", "MIDTERM", "FINAL"
+  marks       Float
+  total_marks Float
+  percentage  Float
+  grade       String?
+  exam_date   DateTime
+  remarks     String?  @db.Text
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  student     User     @relation(fields: [student_id], references: [user_id])
+
+  @@index([student_id])
+  @@index([subject])
+  @@index([exam_date])
+}
+
+model ClassSchedule {
+  id          Int      @id @default(autoincrement())
+  class_id    String
+  subject     String
+  teacher_id  Int
+  day_of_week Int      // 0-6 representing Sunday-Saturday
+  start_time  String
+  end_time    String
+  room        String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  is_active   Boolean  @default(true)
+  
+  teacher     User     @relation("TeacherSchedules", fields: [teacher_id], references: [user_id])
+
+  @@index([class_id])
+  @@index([teacher_id])
+  @@index([day_of_week])
+}
+
+model OTP {
+  id          Int      @id @default(autoincrement())
+  type        String   // "EMAIL" or "MOBILE"
+  identifier  String   // email or mobile number
+  code        String
+  expires_at  DateTime
+  verified    Boolean  @default(false)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@index([identifier, type])
+  @@index([expires_at])
+}
