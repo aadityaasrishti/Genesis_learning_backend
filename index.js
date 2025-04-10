@@ -3,9 +3,6 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
-const https = require("https");
-const http = require("http");
-const crypto = require("crypto");
 const { prisma } = require("./src/config/prisma");
 const authRoutes = require("./src/routes/auth");
 const attendanceRoutes = require("./src/routes/attendance");
@@ -59,7 +56,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // CORS configuration with specific timeout settings
 const corsOptions = {
-  origin: JSON.parse(process.env.CORS_ORIGINS || '["https://localhost:5173"]'),
+  origin: JSON.parse(process.env.CORS_ORIGINS || '["http://localhost:5173"]'),
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
   allowedHeaders: [
     "Content-Type", 
@@ -105,31 +102,35 @@ app.use("/api/schedules", scheduleRoutes);
 app.use("/api/expenses", require("./src/routes/expenses")); // Add expenses route
 app.use("/api/daily-challenges", dailyChallengeRoutes);
 
-// Serve static files from uploads directory with proper headers
+// URL rewrite middleware for handling malformed upload URLs
+app.use((req, res, next) => {
+  if (req.url.startsWith("/apiuploads/")) {
+    req.url = "/api/uploads/" + req.url.slice(11);
+  }
+  next();
+});
+
+// Unified static file serving for uploads with comprehensive headers
 app.use(
   "/api/uploads",
   express.static(path.join(__dirname, "uploads"), {
     setHeaders: (res, filePath) => {
-      // Set CORS headers
+      // Set common CORS and security headers
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
       res.setHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Range");
       res.setHeader("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length");
-      
-      // Set cache control headers
-      res.setHeader("Cache-Control", "public, max-age=31536000");
-      
-      // Set security headers
       res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-      res.setHeader("Cross-Origin-Embedder-Policy", "credentialless");
-      res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+      res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+      res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
       res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Accept-Ranges", "bytes");
       
-      // Set proper content type for different file types
+      // Set content types and specific headers based on file type
       if (filePath.endsWith(".pdf")) {
         res.setHeader("Content-Type", "application/pdf");
         res.setHeader("Content-Disposition", "inline");
-        res.setHeader("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data:");
+        res.setHeader("Content-Security-Policy", "default-src 'self' blob: data:; object-src 'self' blob: data:; frame-ancestors 'self' *");
       } else if (filePath.match(/\.(jpg|jpeg)$/i)) {
         res.setHeader("Content-Type", "image/jpeg");
       } else if (filePath.match(/\.png$/i)) {
@@ -142,67 +143,13 @@ app.use(
         res.setHeader("Content-Type", "video/mp4");
       } else if (filePath.match(/\.webm$/i)) {
         res.setHeader("Content-Type", "video/webm");
-      }
-    },
-  })
-);
-
-// Configure static file serving for uploads
-app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
-  setHeaders: (res, filePath) => {
-    // Enable CORS for images
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    // Set proper cache control
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    // Set content type for images
-    if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
-      res.setHeader('Content-Type', 'image/jpeg');
-    } else if (filePath.endsWith('.png')) {
-      res.setHeader('Content-Type', 'image/png');
-    }
-  }
-}));
-
-// URL rewrite middleware for handling malformed upload URLs
-app.use((req, res, next) => {
-  if (req.url.startsWith("/apiuploads/")) {
-    req.url = "/api/uploads/" + req.url.slice(11);
-  }
-  next();
-});
-
-// Static file serving comes after protected routes
-app.use(
-  "/api/uploads",
-  express.static(path.join(__dirname, "uploads"), {
-    setHeaders: (res, filePath) => {
-      // Set appropriate Content-Type and security headers for PDFs
-      if (filePath.endsWith(".pdf")) {
-        res.setHeader("Content-Type", "application/pdf");
-        res.setHeader("Content-Disposition", "inline");
-        res.setHeader("X-Content-Type-Options", "nosniff");
-        res.removeHeader("X-Frame-Options"); // Remove frame restriction
-        res.setHeader("Content-Security-Policy", "default-src 'self' blob: data:; object-src 'self' blob: data:; frame-ancestors 'self' *");
-      } else if (filePath.endsWith(".mp4")) {
-        res.setHeader("Content-Type", "video/mp4");
-      } else if (filePath.endsWith(".webm")) {
-        res.setHeader("Content-Type", "video/webm");
       } else if (filePath.endsWith(".docx")) {
         res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
         res.setHeader("Content-Disposition", "attachment");
       }
-
-      // Set Cross-Origin headers for all content
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Range");
-      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-      res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
-      res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
       
-      // Cache control for better performance
-      res.setHeader("Cache-Control", "public, max-age=3600");
-      res.setHeader("Accept-Ranges", "bytes");
+      // Set cache control - one month for most files
+      res.setHeader("Cache-Control", "public, max-age=2592000");
     },
     fallthrough: true,
   })
@@ -315,55 +262,14 @@ app.use((req, res) => {
 initialize()
   .then(() => {
     const PORT = process.env.PORT || 5000;
-    const HTTP_PORT = process.env.HTTP_PORT || 8080;
-
-    try {
-      // Read SSL certificates
-      const privateKey = fs.readFileSync(
-        path.join(__dirname, process.env.SSL_KEY_PATH),
-        "utf8"
-      );
-      const certificate = fs.readFileSync(
-        path.join(__dirname, process.env.SSL_CERT_PATH),
-        "utf8"
-      );
-
-      const credentials = {
-        key: privateKey,
-        cert: certificate,
-        secureOptions: crypto.constants.SSL_OP_NO_TLSv1 | crypto.constants.SSL_OP_NO_TLSv1_1
-      };
-
-      // Create HTTPS server
-      const httpsServer = https.createServer(credentials, app);
-
-      // Create HTTP server that redirects to HTTPS
-      const httpServer = http.createServer((req, res) => {
-        const hostname = req.headers.host?.split(':')[0] || 'localhost';
-        const httpsUrl = `https://${hostname}:${PORT}${req.url}`;
-        res.writeHead(301, { Location: httpsUrl });
-        res.end();
-      });
-
-      // Listen on specific network interfaces
-      httpServer.listen(HTTP_PORT, "0.0.0.0", () => {
-        console.log(`HTTP Server running on port ${HTTP_PORT} (redirecting to HTTPS)`);
-      });
-
-      httpsServer.listen(PORT, "0.0.0.0", () => {
-        console.log(`HTTPS Server running on port ${PORT}`);
-        console.log('Server accessible at:');
-        console.log(`- https://localhost:${PORT}`);
-        console.log(`- https://127.0.0.1:${PORT}`);
-        if (process.env.NODE_ENV === 'development') {
-          console.log(`- https://192.168.0.120:${PORT}`);
-        }
-      });
-
-    } catch (error) {
-      console.error('Failed to start server:', error);
-      process.exit(1);
-    }
+    
+    // Create HTTP server - SSL will be handled by the hosting platform
+    app.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`Server accessible at http://127.0.0.1:${PORT}`);
+      }
+    });
   })
   .catch((error) => {
     console.error('Failed to initialize:', error);

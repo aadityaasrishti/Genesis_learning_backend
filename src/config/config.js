@@ -9,7 +9,6 @@ const config = {
   },
   server: {
     port: parseInt(process.env.PORT) || 5000,
-    httpPort: parseInt(process.env.HTTP_PORT) || 8080,
     environment: process.env.NODE_ENV || 'development'
   },
   jwt: {
@@ -17,11 +16,7 @@ const config = {
     expiresIn: '24h'
   },
   cors: {
-    origins: JSON.parse(process.env.CORS_ORIGINS || '["https://localhost:5173"]')
-  },
-  ssl: {
-    keyPath: process.env.SSL_KEY_PATH,
-    certPath: process.env.SSL_CERT_PATH
+    origins: JSON.parse(process.env.CORS_ORIGINS || '["http://localhost:5173"]')
   }
 };
 
