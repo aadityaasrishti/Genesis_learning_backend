@@ -421,57 +421,7 @@ router.put(
         }
 
         // Delete existing role data if any, handling dependencies first
-        if (existingUser.student) {
-          // Delete notifications
-          await prisma.notification.deleteMany({
-            where: { user_id: Number(userId) },
-          });
-
-          // Delete exam notifications
-          await prisma.examNotification.deleteMany({
-            where: { student_id: Number(userId) },
-          });
-
-          // Delete student requests
-          await prisma.studentRequest.deleteMany({
-            where: { student_id: Number(userId) },
-          });
-
-          // Delete assignment submissions
-          await prisma.assignmentSubmission.deleteMany({
-            where: { student_id: Number(userId) },
-          });
-
-          // Delete attendance records
-          await prisma.attendance.deleteMany({
-            where: { user_id: Number(userId) },
-          });
-
-          // Delete fee reminders
-          await prisma.feeReminder.deleteMany({
-            where: { student_id: Number(userId) },
-          });
-
-          // Delete fee payments
-          await prisma.feePayment.deleteMany({
-            where: { student_id: Number(userId) },
-          });
-
-          // Finally delete student record
-          await prisma.student.delete({
-            where: { user_id: Number(userId) },
-          });
-        }
-
-        if (existingUser.teacher) {
-          await prisma.teacher.delete({ where: { user_id: Number(userId) } });
-        }
-
-        if (existingUser.adminSupportStaff) {
-          await prisma.adminSupportStaff.delete({
-            where: { user_id: Number(userId) },
-          });
-        }
+        await handleRoleChange(prisma, userId, existingUser);
 
         // First update user's core data with requested class and subjects
         const updatedUser = await prisma.user.update({
@@ -1534,42 +1484,68 @@ router.post(
         return res.status(404).json({ error: "User not found" });
       }
 
-      const result = await prisma.$transaction(async (prisma) => {
+      const result = await prisma.$transaction(async (tx) => {
         // Delete existing role data
         if (existingUser.teacher) {
           await prisma.teacher.delete({
             where: { user_id: Number(userId) },
           });
         }
-        // ...existing role data deletion...
 
-        // Update user's core data
+        if (existingUser.student) {
+          // Handle student-related deletions in chunks
+          await safeDeleteMany(prisma.notification, { user_id: Number(userId) });
+          await safeDeleteMany(prisma.examNotification, { student_id: Number(userId) });
+          await safeDeleteMany(prisma.studentRequest, { student_id: Number(userId) });
+          await safeDeleteMany(prisma.assignmentSubmission, { student_id: Number(userId) });
+          await safeDeleteMany(prisma.attendance, { user_id: Number(userId) });
+          await safeDeleteMany(prisma.feeReminder, { student_id: Number(userId) });
+          await safeDeleteMany(prisma.feePayment, { student_id: Number(userId) });
+
+          // Delete student record
+          await prisma.student.delete({
+            where: { user_id: Number(userId) },
+          });
+        }
+
+        if (existingUser.adminSupportStaff) {
+          await prisma.adminSupportStaff.delete({
+            where: { user_id: Number(userId) },
+          });
+        }
+
+        // First update user's core data with requested class and subjects
         const updatedUser = await prisma.user.update({
           where: { user_id: Number(userId) },
           data: {
             role,
             plan_status: "permanent",
             demo_user_flag: false,
-            // Sync relevant fields based on role
-            ...(role === "teacher" && {
-              class: roleData.class_assigned,
-              subjects: roleData.subject,
-            }),
-            ...(role === "student" && {
-              class: roleData.class_id,
-              subjects: roleData.subjects,
-            }),
+            // For students, store both current and requested data
+            class: roleData.class_id || roleData.class || existingUser.class,
+            subjects: roleData.subjects || existingUser.subjects,
+            requested_class:
+              requested_class || roleData.class_id || existingUser.class,
+            requested_subjects:
+              requested_subjects || roleData.subjects || existingUser.subjects,
           },
         });
 
-        // Create role-specific record
+        // Now create role-specific record
         switch (role) {
+          case "admin":
+          case "support_staff":
+            await prisma.adminSupportStaff.create({
+              data: {
+                user_id: Number(userId),
+                department: roleData.department,
+                salary: parseFloat(roleData.salary),
+                mobile: existingUser.mobile,
+              },
+            });
+            break;
+
           case "teacher":
-            if (!roleData.subject || !roleData.class_assigned) {
-              throw new Error(
-                "Subject and class assignment are required for teachers"
-              );
-            }
             await prisma.teacher.create({
               data: {
                 user_id: Number(userId),
@@ -1579,14 +1555,14 @@ router.post(
               },
             });
             break;
+
           case "student":
             await prisma.student.create({
               data: {
                 user_id: Number(userId),
                 class_id: roleData.class_id,
                 guardian_name: roleData.guardian_name,
-                guardian_mobile:
-                  roleData.guardian_mobile || existingUser.mobile,
+                guardian_mobile: roleData.guardian_mobile || existingUser.mobile,
                 mobile: existingUser.mobile,
                 enrollment_date: new Date(),
                 subjects: roleData.subjects,
@@ -1597,10 +1573,13 @@ router.post(
                 date_of_birth: roleData.date_of_birth
                   ? new Date(roleData.date_of_birth)
                   : new Date(),
+                fee_due_date: new Date(), // Set initial fee due date to today when upgrading to permanent
               },
             });
             break;
-          // ...rest of existing role cases...
+
+          default:
+            throw new Error("Invalid role specified");
         }
 
         // Create notification for the upgraded user
@@ -1612,7 +1591,10 @@ router.post(
           },
         });
 
-        return updatedUser;
+        return { success: true, user: updatedUser };
+      }, {
+        maxWait: 20000, // 20 seconds max wait time
+        timeout: 30000, // 30 seconds timeout
       });
 
       res.json(result);
