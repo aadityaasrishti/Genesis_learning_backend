@@ -440,6 +440,7 @@ router.put(
           },
         });
 
+
         // Now create role-specific record
         switch (role) {
           case "admin":
