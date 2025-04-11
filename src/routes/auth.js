@@ -11,6 +11,58 @@ const {
 const cleanupNotifications = require("../scripts/cleanupNotifications");
 const { createOTP, sendEmailOTP, sendMobileOTP, verifyOTP } = require("../utils/otpUtils");
 
+// Helper function for chunked deletion
+const safeDeleteMany = async (model, where, chunkSize = 50) => {
+  const items = await model.findMany({
+    where,
+    select: { id: true },
+  });
+  
+  if (items.length === 0) return;
+
+  const chunks = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize).map(item => item.id));
+  }
+
+  for (const chunk of chunks) {
+    await model.deleteMany({
+      where: {
+        id: { in: chunk },
+      },
+    });
+  }
+};
+
+// Helper function for handling role changes with chunked deletions
+const handleRoleChange = async (prisma, userId, existingUser) => {
+  if (existingUser.student) {
+    // Handle student-related deletions in chunks
+    await safeDeleteMany(prisma.notification, { user_id: Number(userId) });
+    await safeDeleteMany(prisma.examNotification, { student_id: Number(userId) });
+    await safeDeleteMany(prisma.studentRequest, { student_id: Number(userId) });
+    await safeDeleteMany(prisma.assignmentSubmission, { student_id: Number(userId) });
+    await safeDeleteMany(prisma.attendance, { user_id: Number(userId) });
+    await safeDeleteMany(prisma.feeReminder, { student_id: Number(userId) });
+    await safeDeleteMany(prisma.feePayment, { student_id: Number(userId) });
+    
+    // Delete student record
+    await prisma.student.delete({
+      where: { user_id: Number(userId) },
+    });
+  }
+
+  if (existingUser.teacher) {
+    await prisma.teacher.delete({ where: { user_id: Number(userId) } });
+  }
+
+  if (existingUser.adminSupportStaff) {
+    await prisma.adminSupportStaff.delete({
+      where: { user_id: Number(userId) },
+    });
+  }
+};
+
 // Create system notification helper function
 const createSystemNotification = async (prisma, userId, message) => {
   await prisma.notification.create({
@@ -440,7 +492,6 @@ router.put(
           },
         });
 
-
         // Now create role-specific record
         switch (role) {
           case "admin":
@@ -493,17 +544,13 @@ router.put(
         }
 
         // Create notification for the upgraded user
-        await createSystemNotification(
-          prisma,
-          Number(userId),
-          `Your account has been upgraded from demo to permanent status by (ID: ${updatingAdmin}). Your new role is: ${role}`
-        );
-
-        // Notify admins about the upgrade
-        await notifyAdmins(
-          prisma,
-          `User (ID: ${userId}) has been upgraded from demo to permanent status with role: ${role} by (ID: ${updatingAdmin})`
-        );
+        await prisma.notification.create({
+          data: {
+            user_id: Number(userId),
+            message: `Your account has been upgraded to ${role}`,
+            type: "role_upgrade",
+          },
+        });
 
         return updatedUser;
       });
