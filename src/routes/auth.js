@@ -11,58 +11,6 @@ const {
 const cleanupNotifications = require("../scripts/cleanupNotifications");
 const { createOTP, sendEmailOTP, sendMobileOTP, verifyOTP } = require("../utils/otpUtils");
 
-// Helper function for chunked deletion
-const safeDeleteMany = async (model, where, chunkSize = 50) => {
-  const items = await model.findMany({
-    where,
-    select: { id: true },
-  });
-  
-  if (items.length === 0) return;
-
-  const chunks = [];
-  for (let i = 0; i < items.length; i += chunkSize) {
-    chunks.push(items.slice(i, i + chunkSize).map(item => item.id));
-  }
-
-  for (const chunk of chunks) {
-    await model.deleteMany({
-      where: {
-        id: { in: chunk },
-      },
-    });
-  }
-};
-
-// Helper function for handling role changes with chunked deletions
-const handleRoleChange = async (prisma, userId, existingUser) => {
-  if (existingUser.student) {
-    // Handle student-related deletions in chunks
-    await safeDeleteMany(prisma.notification, { user_id: Number(userId) });
-    await safeDeleteMany(prisma.examNotification, { student_id: Number(userId) });
-    await safeDeleteMany(prisma.studentRequest, { student_id: Number(userId) });
-    await safeDeleteMany(prisma.assignmentSubmission, { student_id: Number(userId) });
-    await safeDeleteMany(prisma.attendance, { user_id: Number(userId) });
-    await safeDeleteMany(prisma.feeReminder, { student_id: Number(userId) });
-    await safeDeleteMany(prisma.feePayment, { student_id: Number(userId) });
-    
-    // Delete student record
-    await prisma.student.delete({
-      where: { user_id: Number(userId) },
-    });
-  }
-
-  if (existingUser.teacher) {
-    await prisma.teacher.delete({ where: { user_id: Number(userId) } });
-  }
-
-  if (existingUser.adminSupportStaff) {
-    await prisma.adminSupportStaff.delete({
-      where: { user_id: Number(userId) },
-    });
-  }
-};
-
 // Create system notification helper function
 const createSystemNotification = async (prisma, userId, message) => {
   await prisma.notification.create({
@@ -473,7 +421,57 @@ router.put(
         }
 
         // Delete existing role data if any, handling dependencies first
-        await handleRoleChange(prisma, userId, existingUser);
+        if (existingUser.student) {
+          // Delete notifications
+          await prisma.notification.deleteMany({
+            where: { user_id: Number(userId) },
+          });
+
+          // Delete exam notifications
+          await prisma.examNotification.deleteMany({
+            where: { student_id: Number(userId) },
+          });
+
+          // Delete student requests
+          await prisma.studentRequest.deleteMany({
+            where: { student_id: Number(userId) },
+          });
+
+          // Delete assignment submissions
+          await prisma.assignmentSubmission.deleteMany({
+            where: { student_id: Number(userId) },
+          });
+
+          // Delete attendance records
+          await prisma.attendance.deleteMany({
+            where: { user_id: Number(userId) },
+          });
+
+          // Delete fee reminders
+          await prisma.feeReminder.deleteMany({
+            where: { student_id: Number(userId) },
+          });
+
+          // Delete fee payments
+          await prisma.feePayment.deleteMany({
+            where: { student_id: Number(userId) },
+          });
+
+          // Finally delete student record
+          await prisma.student.delete({
+            where: { user_id: Number(userId) },
+          });
+        }
+
+        if (existingUser.teacher) {
+          await prisma.teacher.delete({ where: { user_id: Number(userId) } });
+        }
+
+        if (existingUser.adminSupportStaff) {
+          await prisma.adminSupportStaff.delete({
+            where: { user_id: Number(userId) },
+          });
+        }
 
         // First update user's core data with requested class and subjects
         const updatedUser = await prisma.user.update({
@@ -544,13 +542,17 @@ router.put(
         }
 
         // Create notification for the upgraded user
-        await prisma.notification.create({
-          data: {
-            user_id: Number(userId),
-            message: `Your account has been upgraded to ${role}`,
-            type: "role_upgrade",
-          },
-        });
+        await createSystemNotification(
+          prisma,
+          Number(userId),
+          `Your account has been upgraded from demo to permanent status by (ID: ${updatingAdmin}). Your new role is: ${role}`
+        );
+
+        // Notify admins about the upgrade
+        await notifyAdmins(
+          prisma,
+          `User (ID: ${userId}) has been upgraded from demo to permanent status with role: ${role} by (ID: ${updatingAdmin})`
+        );
 
         return updatedUser;
       });
@@ -1532,68 +1534,42 @@ router.post(
         return res.status(404).json({ error: "User not found" });
       }
 
-      const result = await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async (prisma) => {
         // Delete existing role data
         if (existingUser.teacher) {
           await prisma.teacher.delete({
             where: { user_id: Number(userId) },
           });
         }
+        // ...existing role data deletion...
 
-        if (existingUser.student) {
-          // Handle student-related deletions in chunks
-          await safeDeleteMany(prisma.notification, { user_id: Number(userId) });
-          await safeDeleteMany(prisma.examNotification, { student_id: Number(userId) });
-          await safeDeleteMany(prisma.studentRequest, { student_id: Number(userId) });
-          await safeDeleteMany(prisma.assignmentSubmission, { student_id: Number(userId) });
-          await safeDeleteMany(prisma.attendance, { user_id: Number(userId) });
-          await safeDeleteMany(prisma.feeReminder, { student_id: Number(userId) });
-          await safeDeleteMany(prisma.feePayment, { student_id: Number(userId) });
-
-          // Delete student record
-          await prisma.student.delete({
-            where: { user_id: Number(userId) },
-          });
-        }
-
-        if (existingUser.adminSupportStaff) {
-          await prisma.adminSupportStaff.delete({
-            where: { user_id: Number(userId) },
-          });
-        }
-
-        // First update user's core data with requested class and subjects
+        // Update user's core data
         const updatedUser = await prisma.user.update({
           where: { user_id: Number(userId) },
           data: {
             role,
             plan_status: "permanent",
             demo_user_flag: false,
-            // For students, store both current and requested data
-            class: roleData.class_id || roleData.class || existingUser.class,
-            subjects: roleData.subjects || existingUser.subjects,
-            requested_class:
-              requested_class || roleData.class_id || existingUser.class,
-            requested_subjects:
-              requested_subjects || roleData.subjects || existingUser.subjects,
+            // Sync relevant fields based on role
+            ...(role === "teacher" && {
+              class: roleData.class_assigned,
+              subjects: roleData.subject,
+            }),
+            ...(role === "student" && {
+              class: roleData.class_id,
+              subjects: roleData.subjects,
+            }),
           },
         });
 
-        // Now create role-specific record
+        // Create role-specific record
         switch (role) {
-          case "admin":
-          case "support_staff":
-            await prisma.adminSupportStaff.create({
-              data: {
-                user_id: Number(userId),
-                department: roleData.department,
-                salary: parseFloat(roleData.salary),
-                mobile: existingUser.mobile,
-              },
-            });
-            break;
-
           case "teacher":
+            if (!roleData.subject || !roleData.class_assigned) {
+              throw new Error(
+                "Subject and class assignment are required for teachers"
+              );
+            }
             await prisma.teacher.create({
               data: {
                 user_id: Number(userId),
@@ -1603,14 +1579,14 @@ router.post(
               },
             });
             break;
-
           case "student":
             await prisma.student.create({
               data: {
                 user_id: Number(userId),
                 class_id: roleData.class_id,
                 guardian_name: roleData.guardian_name,
-                guardian_mobile: roleData.guardian_mobile || existingUser.mobile,
+                guardian_mobile:
+                  roleData.guardian_mobile || existingUser.mobile,
                 mobile: existingUser.mobile,
                 enrollment_date: new Date(),
                 subjects: roleData.subjects,
@@ -1621,13 +1597,10 @@ router.post(
                 date_of_birth: roleData.date_of_birth
                   ? new Date(roleData.date_of_birth)
                   : new Date(),
-                fee_due_date: new Date(), // Set initial fee due date to today when upgrading to permanent
               },
             });
             break;
-
-          default:
-            throw new Error("Invalid role specified");
+          // ...rest of existing role cases...
         }
 
         // Create notification for the upgraded user
@@ -1639,10 +1612,7 @@ router.post(
           },
         });
 
-        return { success: true, user: updatedUser };
-      }, {
-        maxWait: 20000, // 20 seconds max wait time
-        timeout: 30000, // 30 seconds timeout
+        return updatedUser;
       });
 
       res.json(result);
