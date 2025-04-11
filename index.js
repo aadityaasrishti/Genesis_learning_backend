@@ -265,11 +265,14 @@ initialize()
     
     // Create HTTP server - SSL will be handled by the hosting platform
     app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
       if (process.env.NODE_ENV === 'development') {
+        console.log(`Server running on http://localhost:${PORT}`);
         console.log(`Server accessible at http://127.0.0.1:${PORT}`);
+      } else {
+        console.log(`Server is live at: ${process.env.RAILWAY_STATIC_URL || 'your-production-URL'}`);
       }
     });
+    
   })
   .catch((error) => {
     console.error('Failed to initialize:', error);
