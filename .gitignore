@@ -34,7 +34,7 @@ temp/
 
 # Prisma
 /prisma/*.db
-/prisma/migrations/*/
+
 
 # Uploaded files and media
 /uploads/*
