@@ -6,7 +6,7 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "postdeploy": "prisma generate && prisma db deploy"
+    "postdeploy": "prisma generate && prisma db push"
   },
   "keywords": [],
   "author": "",
