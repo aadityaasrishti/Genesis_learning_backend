@@ -7,7 +7,7 @@ if (!process.env.DATABASE_URL) {
 }
 
 const prisma = new PrismaClient({
-  log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"], // Removed "query" from log options
+  log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   datasources: {
     db: {
       url: process.env.DATABASE_URL,
@@ -28,60 +28,53 @@ const prisma = new PrismaClient({
 const queryCache = new Map();
 const CACHE_TTL = parseInt(process.env.DB_CACHE_TTL) || 30000;
 
-// Add middleware for caching and error handling
+// Middleware for caching and timeout handling
 prisma.$use(async (params, next) => {
+  const cacheKey = `${params.model}-${params.action}-${JSON.stringify(params.args)}`;
+
+  // Check cache for read operations
+  if (['findUnique', 'findFirst', 'findMany'].includes(params.action)) {
+    const cached = queryCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+      return cached.data;
+    }
+  }
+
   try {
-    // Only cache GET operations
-    if (
-      params.action === "findMany" ||
-      params.action === "findFirst" ||
-      params.action === "findUnique"
-    ) {
-      const cacheKey = JSON.stringify(params);
-      const cached = queryCache.get(cacheKey);
+    // Execute the query with timeout
+    const result = await Promise.race([
+      next(params),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Database query timeout')), 
+        parseInt(process.env.DB_QUERY_TIMEOUT) || 15000)
+      )
+    ]);
 
-      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-        return cached.data;
-      }
-
-      const result = await next(params);
-      queryCache.set(cacheKey, { data: result, timestamp: Date.now() });
-      return result;
+    // Cache the result for read operations
+    if (['findUnique', 'findFirst', 'findMany'].includes(params.action)) {
+      queryCache.set(cacheKey, {
+        data: result,
+        timestamp: Date.now()
+      });
     }
 
-    // For mutations, invalidate the cache
-    if (
-      params.action === "create" ||
-      params.action === "update" ||
-      params.action === "delete"
-    ) {
-      queryCache.clear();
-    }
-
-    return next(params);
+    return result;
   } catch (error) {
-    console.error(
-      `Database query error in ${params.model}.${params.action}:`,
-      error
-    );
+    if (error.message === 'Database query timeout') {
+      console.error(`Query timeout exceeded ${process.env.DB_QUERY_TIMEOUT}ms for operation: ${params.model}.${params.action}`);
+    }
     throw error;
   }
 });
 
-// Remove query event listener and keep only error events
-prisma.$on("error", (e) => {
-  console.error("Database error:", e);
-});
+// Cleanup old cache entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of queryCache.entries()) {
+    if (now - value.timestamp > CACHE_TTL) {
+      queryCache.delete(key);
+    }
+  }
+}, CACHE_TTL);
 
-// Graceful shutdown
-process.on("SIGINT", async () => {
-  await prisma.$disconnect();
-  process.exit();
-});
-
-process.on("SIGTERM", async () => {
-  await prisma.$disconnect();
-  process.exit();
-});
-
-module.exports = { prisma };
+module.exports = prisma;
