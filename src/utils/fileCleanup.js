@@ -2,21 +2,22 @@ const fs = require("fs").promises;
 const path = require("path");
 const { prisma } = require("../config/prisma");
 
-const deleteFile = async (filePath) => {
+const deleteFile = async (url) => {
   try {
-    if (!filePath) return;
+    if (!url) return;
 
-    const fullPath = path.join(
-      process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../"),
-      filePath
-    );
-    await fs.unlink(fullPath);
-    console.log(`Successfully deleted file: ${filePath}`);
+    // Extract the bucket and filename from the Supabase URL
+    const urlParts = url.split("/");
+    const bucketName = urlParts[urlParts.length - 2];
+    const fileName = urlParts[urlParts.length - 1];
+
+    // Create a storage service instance for the appropriate bucket
+    const storage = new StorageService(bucketName);
+    await storage.deleteFile(fileName);
+
+    console.log(`Successfully deleted file from ${bucketName}: ${fileName}`);
   } catch (error) {
-    if (error.code !== "ENOENT") {
-      // Ignore if file doesn't exist
-      console.error(`Error deleting file ${filePath}:`, error);
-    }
+    console.error(`Error deleting file ${url}:`, error);
   }
 };
 
@@ -30,9 +31,10 @@ const deleteTestFiles = async (test) => {
     where: { test_id: test.id },
   });
 
-  for (const submission of submissions) {
-    await deleteFile(submission.content);
-  }
+  // Delete all submission files in parallel
+  await Promise.all(
+    submissions.map((submission) => deleteFile(submission.content))
+  );
 };
 
 module.exports = {

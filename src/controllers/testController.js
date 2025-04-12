@@ -1,20 +1,15 @@
 const { prisma } = require("../config/prisma");
-const path = require("path");
-const fs = require("fs");
-const { deleteFile, deleteTestFiles } = require("../utils/fileCleanup");
+const StorageService = require("../utils/storageService");
 
-// Define upload paths
-const UPLOADS_DIR =
-  process.env.UPLOAD_BASE_PATH || path.resolve(__dirname, "../../uploads");
-const TESTS_DIR = path.join(UPLOADS_DIR, "tests");
-const SUBMISSIONS_DIR = path.join(UPLOADS_DIR, "submissions");
+// Initialize storage service for tests and submissions
+const testStorage = new StorageService("tests");
+const submissionStorage = new StorageService("submissions");
 
-// Ensure directories exist
-[UPLOADS_DIR, TESTS_DIR, SUBMISSIONS_DIR].forEach((dir) => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-});
+// Create buckets if they don't exist
+Promise.all([
+  testStorage.createBucketIfNotExists(),
+  submissionStorage.createBucketIfNotExists(),
+]).catch(console.error);
 
 const testController = {
   // Create a new test
@@ -46,19 +41,6 @@ const testController = {
       if (!subject) missingFields.push("subject");
       if (!req.body.class) missingFields.push("class");
       if (!startTime) missingFields.push("startTime");
-
-      console.log("Validation check results:", {
-        missingFields,
-        receivedFields: {
-          title,
-          description,
-          duration,
-          type,
-          subject,
-          class: req.body.class,
-          startTime,
-        },
-      });
 
       if (missingFields.length > 0) {
         return res.status(400).json({
@@ -96,7 +78,11 @@ const testController = {
           });
         }
 
-        content = `tests/${req.body.pdf.filename}`;
+        // Upload to Supabase storage
+        const fileName = `test-${
+          req.user.user_id
+        }-${Date.now()}-${req.body.pdf.originalname.replace(/\s+/g, "-")}`;
+        content = await testStorage.uploadFile(req.body.pdf, fileName);
       } else if (!content?.trim()) {
         return res.status(400).json({
           error: "Test content is required for TEXT type tests",
@@ -104,19 +90,6 @@ const testController = {
           receivedBody: req.body,
         });
       }
-
-      console.log("Creating test with data:", {
-        title,
-        description,
-        duration,
-        type,
-        content,
-        subject,
-        startTime,
-        created_by: req.user.user_id,
-        class_id: req.body.class,
-        assignedStudents,
-      });
 
       const test = await prisma.test.create({
         data: {
@@ -465,13 +438,19 @@ const testController = {
       ); // Add 10 minutes grace period
       const isLate = now > testEndTime;
 
-      // Create submission record using the file data from uploadFile middleware
+      // Upload to Supabase storage
+      const fileName = `submission-${
+        req.user.user_id
+      }-${testId}-${Date.now()}-${fileData.originalname.replace(/\s+/g, "-")}`;
+      const content = await submissionStorage.uploadFile(fileData, fileName);
+
+      // Create submission record
       const submission = await prisma.testSubmission.create({
         data: {
           test_id: testId,
           student_id: req.user.user_id,
-          content: fileData.filename, // Use the filename from uploadFile middleware
-          isLate: isLate,
+          content,
+          isLate,
         },
       });
 
@@ -789,17 +768,11 @@ const testController = {
           .json({ error: "Test not found or unauthorized" });
       }
       if (test.type === "PDF") {
-        const filePath = path.join(
-          process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
-          "tests",
-          test.content.replace("tests/", "")
-        );
-        if (!fs.existsSync(filePath)) {
+        if (!test.content) {
           return res.status(404).json({ error: "Test file not found" });
         }
-        res.setHeader("Content-Type", "application/pdf");
-        res.setHeader("Content-Disposition", "inline");
-        res.sendFile(filePath);
+        // For Supabase URLs, redirect to the file
+        res.redirect(test.content);
       } else {
         res.json({ content: test.content });
       }
@@ -837,18 +810,12 @@ const testController = {
           .status(404)
           .json({ error: "Submission not found or unauthorized" });
       }
-      const filePath = path.join(
-        process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
-        "submissions",
-        submission.content
-      );
-      if (!fs.existsSync(filePath)) {
+      if (!submission.content) {
         return res.status(404).json({ error: "Submission file not found" });
       }
 
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", "inline");
-      res.sendFile(filePath);
+      // For Supabase URLs, redirect to the file
+      res.redirect(submission.content);
     } catch (error) {
       console.error("Error fetching submission content:", error);
       res.status(500).json({ error: "Failed to fetch submission content" });
