@@ -17,7 +17,10 @@ exports.createMCQQuestion = async (req, res) => {
 
     let image_url = null;
     if (req.file) {
-      const uploadDir = path.join(__dirname, "../../uploads/mcq-images");
+      const uploadDir = path.join(
+        process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
+        "mcq-images"
+      );
       await fs.mkdir(uploadDir, { recursive: true });
 
       const fileName = `${Date.now()}-${req.file.originalname}`;
@@ -51,8 +54,10 @@ exports.bulkCreateMCQQuestions = async (req, res) => {
     const { questions } = req.body;
     const teacher_id = req.user.user_id;
     const files = req.files || [];
-
-    const uploadDir = path.join(__dirname, "../../uploads/mcq-images");
+    const uploadDir = path.join(
+      process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
+      "mcq-images"
+    );
     await fs.mkdir(uploadDir, { recursive: true });
 
     const createdQuestions = await prisma.$transaction(
@@ -60,7 +65,10 @@ exports.bulkCreateMCQQuestions = async (req, res) => {
         let image_url = null;
         if (files[index]) {
           const fileName = `${Date.now()}-${files[index].originalname}`;
-          await fs.writeFile(path.join(uploadDir, fileName), files[index].buffer);
+          await fs.writeFile(
+            path.join(uploadDir, fileName),
+            files[index].buffer
+          );
           image_url = `/uploads/mcq-images/${fileName}`;
         }
 
@@ -222,7 +230,9 @@ exports.startMCQSession = async (req, res) => {
       question: {
         ...sq.question,
         options: JSON.parse(sq.question.options),
-        image_url: sq.question.image_url ? `${req.protocol}://${req.get('host')}${sq.question.image_url}` : null
+        image_url: sq.question.image_url
+          ? `${req.protocol}://${req.get("host")}${sq.question.image_url}`
+          : null,
       },
     }));
 
@@ -413,7 +423,9 @@ exports.getSessionResults = async (req, res) => {
       question: {
         ...sq.question,
         options: JSON.parse(sq.question.options),
-        image_url: sq.question.image_url ? `${req.protocol}://${req.get('host')}${sq.question.image_url}` : null
+        image_url: sq.question.image_url
+          ? `${req.protocol}://${req.get("host")}${sq.question.image_url}`
+          : null,
       },
     }));
 
@@ -456,7 +468,9 @@ exports.getStudentSessions = async (req, res) => {
         question: {
           ...sq.question,
           options: JSON.parse(sq.question.options),
-          image_url: sq.question.image_url ? `${req.protocol}://${req.get('host')}${sq.question.image_url}` : null
+          image_url: sq.question.image_url
+            ? `${req.protocol}://${req.get("host")}${sq.question.image_url}`
+            : null,
         },
       })),
     }));
@@ -552,7 +566,9 @@ exports.getTeacherSessions = async (req, res) => {
         question: {
           ...sq.question,
           options: JSON.parse(sq.question.options),
-          image_url: sq.question.image_url ? `${req.protocol}://${req.get('host')}${sq.question.image_url}` : null
+          image_url: sq.question.image_url
+            ? `${req.protocol}://${req.get("host")}${sq.question.image_url}`
+            : null,
         },
       })),
     }));
@@ -770,7 +786,9 @@ exports.loadNextBatch = async (req, res) => {
       question: {
         ...sq.question,
         options: JSON.parse(sq.question.options),
-        image_url: sq.question.image_url ? `${req.protocol}://${req.get('host')}${sq.question.image_url}` : null
+        image_url: sq.question.image_url
+          ? `${req.protocol}://${req.get("host")}${sq.question.image_url}`
+          : null,
       },
     }));
 

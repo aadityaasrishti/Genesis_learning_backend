@@ -12,7 +12,10 @@ const {
 // Configure multer for file uploads
 const upload = multer({
   storage: multer.memoryStorage(), // Use memory storage to handle files in buffer
-  limits: { fileSize: parseInt(process.env.FILE_UPLOAD_LIMIT_EXAM_NOTIFICATION) || 5242880 }, // Default to 5MB if not set
+  limits: {
+    fileSize:
+      parseInt(process.env.FILE_UPLOAD_LIMIT_EXAM_NOTIFICATION) || 5242880,
+  }, // Default to 5MB if not set
   fileFilter: (req, file, cb) => {
     console.log("Received file:", file); // Add debug logging
     // Accept PDFs and common image formats
@@ -77,8 +80,12 @@ router.get(
   async (req, res) => {
     try {
       const { filename } = req.params;
-      const filePath = path.join(__dirname, "../../uploads/syllabi", filename);
-      
+      const filePath = path.join(
+        process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
+        "syllabi",
+        filename
+      );
+
       res.download(filePath, filename, (err) => {
         if (err) {
           console.error("Download error:", err);

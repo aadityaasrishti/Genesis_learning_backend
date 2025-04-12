@@ -4,8 +4,8 @@ const fs = require("fs");
 const { deleteFile, deleteTestFiles } = require("../utils/fileCleanup");
 
 // Define upload paths
-const rootDir = path.resolve(__dirname, "../..");
-const UPLOADS_DIR = path.join(rootDir, "uploads");
+const UPLOADS_DIR =
+  process.env.UPLOAD_BASE_PATH || path.resolve(__dirname, "../../uploads");
 const TESTS_DIR = path.join(UPLOADS_DIR, "tests");
 const SUBMISSIONS_DIR = path.join(UPLOADS_DIR, "submissions");
 
@@ -337,11 +337,23 @@ const testController = {
             // Allow access to all teachers of the same subject and class
             {
               AND: [
-                { subject: { in: req.user.teacher?.subject?.split(",").map(s => s.trim()) } },
-                { class_id: { in: req.user.teacher?.class_assigned?.split(",").map(c => c.trim()) } }
-              ]
-            }
-          ]
+                {
+                  subject: {
+                    in: req.user.teacher?.subject
+                      ?.split(",")
+                      .map((s) => s.trim()),
+                  },
+                },
+                {
+                  class_id: {
+                    in: req.user.teacher?.class_assigned
+                      ?.split(",")
+                      .map((c) => c.trim()),
+                  },
+                },
+              ],
+            },
+          ],
         },
         include: {
           submissions: {
@@ -350,26 +362,30 @@ const testController = {
                 select: {
                   name: true,
                   email: true,
-                }
+                },
               },
             },
             orderBy: {
-              createdAt: 'desc'
-            }
-          }
-        }
+              createdAt: "desc",
+            },
+          },
+        },
       });
 
       if (!test) {
-        console.log("Test not found or unauthorized:", { testId, userId: req.user.user_id });
-        return res.status(404).json({ 
-          error: "Test not found or you don't have permission to view submissions",
-          code: "TEST_NOT_FOUND"
+        console.log("Test not found or unauthorized:", {
+          testId,
+          userId: req.user.user_id,
+        });
+        return res.status(404).json({
+          error:
+            "Test not found or you don't have permission to view submissions",
+          code: "TEST_NOT_FOUND",
         });
       }
 
       // Format submissions with additional details
-      const formattedSubmissions = test.submissions.map(sub => ({
+      const formattedSubmissions = test.submissions.map((sub) => ({
         id: sub.id,
         student_id: sub.student_id,
         student_name: sub.student?.name || "Unknown Student",
@@ -378,12 +394,12 @@ const testController = {
         grade: sub.grade,
         feedback: sub.feedback,
         is_late: sub.isLate || false,
-        status: sub.grade !== null ? 'graded' : 'pending'
+        status: sub.grade !== null ? "graded" : "pending",
       }));
 
       console.log("Successfully fetched submissions:", {
         testId,
-        submissionCount: formattedSubmissions.length
+        submissionCount: formattedSubmissions.length,
       });
 
       res.json(formattedSubmissions);
@@ -391,11 +407,11 @@ const testController = {
       console.error("Error fetching submissions:", {
         error: error.message,
         stack: error.stack,
-        testId: req.params.testId
+        testId: req.params.testId,
       });
-      res.status(500).json({ 
+      res.status(500).json({
         error: "Failed to fetch submissions. Please try again.",
-        code: "FETCH_ERROR"
+        code: "FETCH_ERROR",
       });
     }
   },
@@ -772,10 +788,10 @@ const testController = {
           .status(404)
           .json({ error: "Test not found or unauthorized" });
       }
-
       if (test.type === "PDF") {
         const filePath = path.join(
-          TESTS_DIR,
+          process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
+          "tests",
           test.content.replace("tests/", "")
         );
         if (!fs.existsSync(filePath)) {
@@ -821,8 +837,11 @@ const testController = {
           .status(404)
           .json({ error: "Submission not found or unauthorized" });
       }
-
-      const filePath = path.join(SUBMISSIONS_DIR, submission.content);
+      const filePath = path.join(
+        process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
+        "submissions",
+        submission.content
+      );
       if (!fs.existsSync(filePath)) {
         return res.status(404).json({ error: "Submission file not found" });
       }

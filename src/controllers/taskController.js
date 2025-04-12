@@ -38,8 +38,8 @@ exports.createStudentRequest = async (req, res) => {
       const relativePath = `/uploads/student-requests/${req.file.filename}`;
       image_url = relativePath;
 
-      // Ensure the file was saved
-      const absolutePath = path.join(__dirname, "../..", relativePath);
+      // Ensure the file was saved  
+      const absolutePath = path.join(process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../.."), relativePath);
       try {
         await fs.access(absolutePath);
       } catch (error) {
@@ -286,8 +286,8 @@ exports.updateTaskStatus = async (req, res) => {
     const existingTask = await prisma.teacherTask.findUnique({
       where: { id: parseInt(id) },
       include: {
-        teacher: true
-      }
+        teacher: true,
+      },
     });
 
     console.log("Existing task:", existingTask);
@@ -303,22 +303,22 @@ exports.updateTaskStatus = async (req, res) => {
     // Validate status value
     const validStatuses = ["PENDING", "IN_PROGRESS", "COMPLETED"];
     if (!validStatuses.includes(status)) {
-      return res.status(400).json({ 
-        error: `Invalid status. Must be one of: ${validStatuses.join(", ")}`
+      return res.status(400).json({
+        error: `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
       });
     }
 
     // Get the teacher's name
     const teacher = await prisma.user.findUnique({
-      where: { user_id: existingTask.teacher_id }
+      where: { user_id: existingTask.teacher_id },
     });
 
     const task = await prisma.teacherTask.update({
       where: { id: parseInt(id) },
       data: { status },
       include: {
-        teacher: true
-      }
+        teacher: true,
+      },
     });
 
     console.log("Updated task:", task);
@@ -326,22 +326,21 @@ exports.updateTaskStatus = async (req, res) => {
     // Send notifications to admins and support staff
     const adminStaff = await prisma.user.findMany({
       where: {
-        OR: [
-          { role: "admin" },
-          { role: "support_staff" }
-        ],
-        is_active: true
-      }
+        OR: [{ role: "admin" }, { role: "support_staff" }],
+        is_active: true,
+      },
     });
 
     // Create notifications for admins and support staff
     if (adminStaff.length > 0) {
       await prisma.notification.createMany({
-        data: adminStaff.map(staff => ({
+        data: adminStaff.map((staff) => ({
           user_id: staff.user_id,
-          message: `Task "${task.title}" status updated to ${status} by ${teacher?.name || 'Unknown Teacher'}`,
-          type: "task_update"
-        }))
+          message: `Task "${task.title}" status updated to ${status} by ${
+            teacher?.name || "Unknown Teacher"
+          }`,
+          type: "task_update",
+        })),
       });
     }
 
@@ -349,9 +348,9 @@ exports.updateTaskStatus = async (req, res) => {
   } catch (error) {
     console.error("Error updating task status:", error);
     console.error("Error stack:", error.stack);
-    res.status(500).json({ 
+    res.status(500).json({
       error: "Failed to update task status",
-      details: error.message
+      details: error.message,
     });
   }
 };

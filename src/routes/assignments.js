@@ -174,8 +174,8 @@ router.get(
   asyncHandler(async (req, res) => {
     const { filename } = req.params;
     const filePath = path.join(
-      __dirname,
-      "../../uploads/assignments",
+      process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
+      "assignments",
       filename
     );
 
@@ -192,8 +192,8 @@ router.get(
   asyncHandler(async (req, res) => {
     const { filename } = req.params;
     const filePath = path.join(
-      __dirname,
-      "../../uploads/assignments",
+      process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
+      "assignments",
       filename
     );
 

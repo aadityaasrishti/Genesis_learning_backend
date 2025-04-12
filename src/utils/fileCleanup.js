@@ -6,7 +6,10 @@ const deleteFile = async (filePath) => {
   try {
     if (!filePath) return;
 
-    const fullPath = path.join(__dirname, "../../", filePath);
+    const fullPath = path.join(
+      process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../"),
+      filePath
+    );
     await fs.unlink(fullPath);
     console.log(`Successfully deleted file: ${filePath}`);
   } catch (error) {

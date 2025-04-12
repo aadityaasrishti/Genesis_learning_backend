@@ -22,8 +22,8 @@ const handleFileUpload = (req, res, next) => {
   const uploadPromise = new Promise((resolve, reject) => {
     bb.on("file", (name, file, info) => {
       const saveTo = path.join(
-        __dirname,
-        "../../uploads/submissions",
+        process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
+        "submissions",
         `${Date.now()}-${info.filename}`
       );
       const writeStream = fs.createWriteStream(saveTo);
@@ -239,12 +239,10 @@ router.delete("/:submissionId", authMiddleware, async (req, res) => {
       return res
         .status(403)
         .json({ error: "Not authorized to delete this submission" });
-    }
-
-    // Delete the file
+    } // Delete the file
     const filePath = path.join(
-      __dirname,
-      "../../uploads/submissions",
+      process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
+      "submissions",
       submission.content
     );
     if (fs.existsSync(filePath)) {

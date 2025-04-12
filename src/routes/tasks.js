@@ -19,7 +19,10 @@ const {
 } = require("../controllers/taskController");
 
 // Create uploads directory if it doesn't exist
-const uploadDir = path.join(__dirname, "../../uploads/student-requests");
+const uploadDir = path.join(
+  process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
+  "student-requests"
+);
 
 // Ensure upload directory exists
 try {

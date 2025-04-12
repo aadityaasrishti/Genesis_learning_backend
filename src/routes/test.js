@@ -9,7 +9,8 @@ const busboy = require("busboy");
 const crypto = require("crypto");
 
 // Ensure uploads directory exists
-const UPLOADS_DIR = path.join(process.cwd(), "uploads");
+const UPLOADS_DIR =
+  process.env.UPLOAD_BASE_PATH || path.join(process.cwd(), "uploads");
 const SUBMISSIONS_DIR = path.join(UPLOADS_DIR, "submissions");
 const TESTS_DIR = path.join(UPLOADS_DIR, "tests");
 

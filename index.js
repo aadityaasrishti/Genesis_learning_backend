@@ -59,16 +59,16 @@ const corsOptions = {
   origin: JSON.parse(process.env.CORS_ORIGINS || '["http://localhost:5173"]'),
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
   allowedHeaders: [
-    "Content-Type", 
-    "Authorization", 
-    "Range", 
-    "Accept", 
+    "Content-Type",
+    "Authorization",
+    "Range",
+    "Accept",
     "Accept-Ranges",
     "Content-Range",
-    "Content-Length"
+    "Content-Length",
   ],
   credentials: true,
-  maxAge: 86400 // 24 hours
+  maxAge: 86400, // 24 hours
 };
 
 app.use(cors(corsOptions));
@@ -113,46 +113,61 @@ app.use((req, res, next) => {
 // Unified static file serving for uploads with comprehensive headers
 app.use(
   "/api/uploads",
-  express.static(path.join(__dirname, "uploads"), {
-    setHeaders: (res, filePath) => {
-      // Set common CORS and security headers
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Range");
-      res.setHeader("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length");
-      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-      res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
-      res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
-      res.setHeader("X-Content-Type-Options", "nosniff");
-      res.setHeader("Accept-Ranges", "bytes");
-      
-      // Set content types and specific headers based on file type
-      if (filePath.endsWith(".pdf")) {
-        res.setHeader("Content-Type", "application/pdf");
-        res.setHeader("Content-Disposition", "inline");
-        res.setHeader("Content-Security-Policy", "default-src 'self' blob: data:; object-src 'self' blob: data:; frame-ancestors 'self' *");
-      } else if (filePath.match(/\.(jpg|jpeg)$/i)) {
-        res.setHeader("Content-Type", "image/jpeg");
-      } else if (filePath.match(/\.png$/i)) {
-        res.setHeader("Content-Type", "image/png");
-      } else if (filePath.match(/\.svg$/i)) {
-        res.setHeader("Content-Type", "image/svg+xml");
-      } else if (filePath.match(/\.gif$/i)) {
-        res.setHeader("Content-Type", "image/gif");
-      } else if (filePath.match(/\.mp4$/i)) {
-        res.setHeader("Content-Type", "video/mp4");
-      } else if (filePath.match(/\.webm$/i)) {
-        res.setHeader("Content-Type", "video/webm");
-      } else if (filePath.endsWith(".docx")) {
-        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-        res.setHeader("Content-Disposition", "attachment");
-      }
-      
-      // Set cache control - one month for most files
-      res.setHeader("Cache-Control", "public, max-age=2592000");
-    },
-    fallthrough: true,
-  })
+  express.static(
+    process.env.UPLOAD_BASE_PATH || path.join(__dirname, "uploads"),
+    {
+      setHeaders: (res, filePath) => {
+        // Set common CORS and security headers
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+        res.setHeader(
+          "Access-Control-Allow-Headers",
+          "Origin, X-Requested-With, Content-Type, Accept, Range"
+        );
+        res.setHeader(
+          "Access-Control-Expose-Headers",
+          "Content-Range, Accept-Ranges, Content-Length"
+        );
+        res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+        res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+        res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("Accept-Ranges", "bytes");
+
+        // Set content types and specific headers based on file type
+        if (filePath.endsWith(".pdf")) {
+          res.setHeader("Content-Type", "application/pdf");
+          res.setHeader("Content-Disposition", "inline");
+          res.setHeader(
+            "Content-Security-Policy",
+            "default-src 'self' blob: data:; object-src 'self' blob: data:; frame-ancestors 'self' *"
+          );
+        } else if (filePath.match(/\.(jpg|jpeg)$/i)) {
+          res.setHeader("Content-Type", "image/jpeg");
+        } else if (filePath.match(/\.png$/i)) {
+          res.setHeader("Content-Type", "image/png");
+        } else if (filePath.match(/\.svg$/i)) {
+          res.setHeader("Content-Type", "image/svg+xml");
+        } else if (filePath.match(/\.gif$/i)) {
+          res.setHeader("Content-Type", "image/gif");
+        } else if (filePath.match(/\.mp4$/i)) {
+          res.setHeader("Content-Type", "video/mp4");
+        } else if (filePath.match(/\.webm$/i)) {
+          res.setHeader("Content-Type", "video/webm");
+        } else if (filePath.endsWith(".docx")) {
+          res.setHeader(
+            "Content-Type",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          );
+          res.setHeader("Content-Disposition", "attachment");
+        }
+
+        // Set cache control - one month for most files
+        res.setHeader("Cache-Control", "public, max-age=2592000");
+      },
+      fallthrough: true,
+    }
+  )
 );
 
 // Detailed 404 handler for static files
@@ -262,19 +277,22 @@ app.use((req, res) => {
 initialize()
   .then(() => {
     const PORT = process.env.PORT || 5000;
-    
+
     // Create HTTP server - SSL will be handled by the hosting platform
     app.listen(PORT, () => {
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV === "development") {
         console.log(`Server running on http://localhost:${PORT}`);
         console.log(`Server accessible at http://127.0.0.1:${PORT}`);
       } else {
-        console.log(`Server is live at: ${process.env.RAILWAY_STATIC_URL || 'your-production-URL'}`);
+        console.log(
+          `Server is live at: ${
+            process.env.RAILWAY_STATIC_URL || "your-production-URL"
+          }`
+        );
       }
     });
-    
   })
   .catch((error) => {
-    console.error('Failed to initialize:', error);
+    console.error("Failed to initialize:", error);
     process.exit(1);
   });

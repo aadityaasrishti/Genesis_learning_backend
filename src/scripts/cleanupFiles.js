@@ -6,12 +6,10 @@ const { prisma } = require("../config/prisma");
 const cleanupOldFiles = async () => {
   try {
     console.log("Starting file cleanup...");
-
-    const testUploadsDir = path.join(__dirname, "../../uploads/tests");
-    const submissionUploadsDir = path.join(
-      __dirname,
-      "../../uploads/submissions"
-    );
+    const baseUploadDir =
+      process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads");
+    const testUploadsDir = path.join(baseUploadDir, "tests");
+    const submissionUploadsDir = path.join(baseUploadDir, "submissions");
 
     // Get all files in upload directories
     const [testFiles, submissionFiles] = await Promise.all([
@@ -40,7 +38,11 @@ const cleanupOldFiles = async () => {
       for (const file of files) {
         if (!validFiles.includes(file)) {
           try {
-            const filePath = path.join(directory, file);
+            const filePath = path.join(
+              process.env.UPLOAD_BASE_PATH ||
+                path.join(__dirname, "../../uploads"),
+              file
+            );
             const stats = await fs.stat(filePath);
             const fileAge = Date.now() - stats.mtime.getTime();
             const daysOld = fileAge / (1000 * 60 * 60 * 24);

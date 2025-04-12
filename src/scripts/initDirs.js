@@ -10,10 +10,11 @@ function initializeUploadDirectories() {
     "uploads/mcq-images",
     "uploads/syllabi",
     "uploads/student-requests",
-    "uploads/assignments"
+    "uploads/assignments",
   ];
 
-  const rootDir = path.resolve(__dirname, "../../");
+  const rootDir =
+    process.env.UPLOAD_BASE_PATH || path.resolve(__dirname, "../../");
 
   dirs.forEach((dir) => {
     const fullPath = path.join(rootDir, dir);

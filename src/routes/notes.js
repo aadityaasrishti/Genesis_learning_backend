@@ -8,7 +8,10 @@ const fs = require("fs");
 const { authMiddleware } = require("../middleware/authMiddleware");
 
 // Create notes upload directory if it doesn't exist
-const uploadDir = path.join(__dirname, "../../uploads/notes");
+const uploadDir = path.join(
+  process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
+  "notes"
+);
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
@@ -68,8 +71,9 @@ router.post(
       if (!allowedTypes.includes(ext)) {
         // Clean up invalid file
         fs.unlinkSync(file.path);
-        return res.status(400).json({ 
-          error: "Invalid file type. Only PDF, DOCX, and video files are allowed." 
+        return res.status(400).json({
+          error:
+            "Invalid file type. Only PDF, DOCX, and video files are allowed.",
         });
       }
 
@@ -79,20 +83,17 @@ router.post(
 
       // Set appropriate file type based on extension
       const fileType =
-        ext === ".pdf"
-          ? "PDF"
-          : ext === ".docx"
-          ? "DOCX"
-          : "VIDEO";
+        ext === ".pdf" ? "PDF" : ext === ".docx" ? "DOCX" : "VIDEO";
 
       // Ensure file is readable
       try {
         await fs.promises.access(file.path, fs.constants.R_OK);
       } catch (err) {
         console.error("File access error:", err);
-        return res.status(500).json({ 
+        return res.status(500).json({
           error: "File upload failed - unable to access file",
-          details: process.env.NODE_ENV === "development" ? err.message : undefined
+          details:
+            process.env.NODE_ENV === "development" ? err.message : undefined,
         });
       }
 
@@ -113,7 +114,9 @@ router.post(
       await prisma.notification.create({
         data: {
           user_id: 1, // Assuming admin has user_id 1
-          message: `New ${fileType.toLowerCase()} uploaded for ${subject} by ${req.user.name} pending approval`,
+          message: `New ${fileType.toLowerCase()} uploaded for ${subject} by ${
+            req.user.name
+          } pending approval`,
           type: "notes_upload",
         },
       });
@@ -129,9 +132,10 @@ router.post(
           }
         });
       }
-      res.status(500).json({ 
-        error: "Failed to upload notes", 
-        details: process.env.NODE_ENV === "development" ? error.message : undefined
+      res.status(500).json({
+        error: "Failed to upload notes",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
       });
     }
   }
@@ -262,28 +266,24 @@ router.get(
 );
 
 // Teacher: Get their uploaded notes
-router.get(
-  "/teacher",
-  authMiddleware(["teacher"]),
-  async (req, res) => {
-    try {
-      const notes = await prisma.notes.findMany({
-        where: {
-          teacher_id: req.user.user_id,
-        },
-        include: {
-          approval: true,
-        },
-        orderBy: {
-          created_at: "desc",
-        },
-      });
-      res.json(notes);
-    } catch (error) {
-      console.error("Error fetching teacher notes:", error);
-      res.status(500).json({ error: "Failed to fetch notes" });
-    }
+router.get("/teacher", authMiddleware(["teacher"]), async (req, res) => {
+  try {
+    const notes = await prisma.notes.findMany({
+      where: {
+        teacher_id: req.user.user_id,
+      },
+      include: {
+        approval: true,
+      },
+      orderBy: {
+        created_at: "desc",
+      },
+    });
+    res.json(notes);
+  } catch (error) {
+    console.error("Error fetching teacher notes:", error);
+    res.status(500).json({ error: "Failed to fetch notes" });
   }
-);
+});
 
 module.exports = router;

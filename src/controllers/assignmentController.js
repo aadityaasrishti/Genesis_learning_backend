@@ -248,11 +248,13 @@ const submitAssignment = async (req, res) => {
           "Submission period has ended. Assignment can no longer be submitted.",
       });
     }
-
     const isLate = now > dueDate;
 
     if (req.file) {
-      const uploadDir = path.join(__dirname, "../../uploads/assignments");
+      const uploadDir = path.join(
+        process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
+        "assignments"
+      );
       await fs.mkdir(uploadDir, { recursive: true });
 
       const fileName = `${Date.now()}-${req.file.originalname}`;
@@ -491,11 +493,12 @@ const updateAssignment = async (req, res) => {
         success: false,
         message: "You don't have permission to edit this assignment",
       });
-    }
-
-    // Handle file upload if provided
+    } // Handle file upload if provided
     if (req.file) {
-      const uploadDir = path.join(__dirname, "../../uploads/assignments");
+      const uploadDir = path.join(
+        process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
+        "assignments"
+      );
       await fs.mkdir(uploadDir, { recursive: true });
 
       const fileName = `${Date.now()}-${req.file.originalname}`;
@@ -506,8 +509,7 @@ const updateAssignment = async (req, res) => {
       if (existingAssignment.file_url) {
         try {
           const oldFilePath = path.join(
-            __dirname,
-            "../..",
+            process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../.."),
             existingAssignment.file_url
           );
           await fs.unlink(oldFilePath);
@@ -552,9 +554,7 @@ const updateAssignment = async (req, res) => {
 const deleteAssignment = async (req, res) => {
   try {
     await ensurePrismaConnection();
-    const { id } = req.params;
-
-    // Find assignment to verify teacher ownership and get file path
+    const { id } = req.params; // Find assignment to verify teacher ownership and get file path
     const assignment = await prisma.assignment.findUnique({
       where: { id: parseInt(id) },
       include: {
@@ -569,20 +569,18 @@ const deleteAssignment = async (req, res) => {
     }
 
     if (assignment.teacher_id !== req.user.user_id) {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          message: "You don't have permission to delete this assignment",
-        });
+      return res.status(403).json({
+        success: false,
+        message: "You don't have permission to delete this assignment",
+      });
     }
 
     // Delete assignment file if exists
     if (assignment.file_url) {
       try {
         const filePath = path.join(
-          __dirname,
-          "../../uploads/assignments",
+          process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
+          "assignments",
           assignment.file_url.split("/").pop() || ""
         );
         if (
@@ -605,8 +603,9 @@ const deleteAssignment = async (req, res) => {
           const fileName = submission.file_url.split("/").pop();
           if (fileName) {
             const submissionPath = path.join(
-              __dirname,
-              "../../uploads/assignments",
+              process.env.UPLOAD_BASE_PATH ||
+                path.join(__dirname, "../../uploads"),
+              "assignments",
               fileName
             );
             if (

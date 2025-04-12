@@ -7,7 +7,10 @@ const { prisma } = require("../config/prisma");
 const { authMiddleware } = require("../middleware/authMiddleware");
 
 // Create profile images upload directory if it doesn't exist
-const uploadDir = path.join(__dirname, "../../uploads/profile-images");
+const uploadDir = path.join(
+  process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
+  "profile-images"
+);
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
@@ -52,8 +55,10 @@ const deleteOldProfileImage = async (imageUrl) => {
   try {
     const relativePath = imageUrl.split("/api/uploads/")[1];
     if (!relativePath) return;
-
-    const fullPath = path.join(__dirname, "../../uploads", relativePath);
+    const fullPath = path.join(
+      process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
+      relativePath
+    );
     if (fs.existsSync(fullPath)) {
       fs.unlinkSync(fullPath);
     }

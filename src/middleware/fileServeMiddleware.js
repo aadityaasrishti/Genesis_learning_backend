@@ -68,7 +68,7 @@ const handleFileServing = (req, res, next) => {
 
   // Enhanced file serving for PDFs and videos
   if (req.path.endsWith('.mp4') || req.path.endsWith('.pdf')) {
-    const filePath = path.join(__dirname, '../..', req.path.replace('/api', ''));
+    const filePath = path.join(process.env.UPLOAD_BASE_PATH || path.join(__dirname, '../..'), req.path.replace('/api', '').replace('/uploads', ''));
     
     fs.stat(filePath, (err, stats) => {
       if (err) {

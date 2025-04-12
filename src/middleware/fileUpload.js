@@ -1,10 +1,11 @@
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-const crypto = require('crypto');
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
 
 // Ensure uploads directory exists
-const UPLOADS_DIR = path.join(process.cwd(), "uploads");
+const UPLOADS_DIR =
+  process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads");
 const TESTS_DIR = path.join(UPLOADS_DIR, "tests");
 const SUBMISSIONS_DIR = path.join(UPLOADS_DIR, "submissions");
 
@@ -27,23 +28,23 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     // Determine the appropriate upload directory based on the route
     let uploadDir = UPLOADS_DIR;
-    if (req.path.includes('test')) {
-      uploadDir = req.path.includes('submit') ? SUBMISSIONS_DIR : TESTS_DIR;
+    if (req.path.includes("test")) {
+      uploadDir = req.path.includes("submit") ? SUBMISSIONS_DIR : TESTS_DIR;
     }
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     cb(null, generateUniqueFilename(file.originalname));
-  }
+  },
 });
 
 // File filter
 const fileFilter = (req, file, cb) => {
   // Allow PDF files by default
-  if (file.mimetype === 'application/pdf') {
+  if (file.mimetype === "application/pdf") {
     cb(null, true);
   } else {
-    cb(new Error('Only PDF files are allowed'), false);
+    cb(new Error("Only PDF files are allowed"), false);
   }
 };
 
@@ -52,9 +53,9 @@ const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: parseInt(process.env.FILE_UPLOAD_LIMIT_TEST) || 52428800 // Default to 50MB if not set
-  }
+    fileSize: parseInt(process.env.FILE_UPLOAD_LIMIT_TEST) || 52428800, // Default to 50MB if not set
+  },
 });
 
 // Export middleware
-exports.uploadFile = upload.single('file');
+exports.uploadFile = upload.single("file");
