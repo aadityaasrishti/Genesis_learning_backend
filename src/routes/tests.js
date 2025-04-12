@@ -35,7 +35,7 @@ router.get(
 router.post(
   "/",
   authMiddleware(["teacher"]),
-  uploadFile,
+  upload,
   testController.createTest
 );
 
