@@ -1,6 +1,9 @@
 const { prisma } = require("../config/prisma");
-const fs = require("fs").promises;
-const path = require("path");
+const StorageService = require("../utils/storageService");
+
+// Initialize storage service for MCQ images
+const mcqStorage = new StorageService("mcq-images");
+mcqStorage.createBucketIfNotExists().catch(console.error);
 
 // Create a new MCQ question
 exports.createMCQQuestion = async (req, res) => {
@@ -17,15 +20,12 @@ exports.createMCQQuestion = async (req, res) => {
 
     let image_url = null;
     if (req.file) {
-      const uploadDir = path.join(
-        process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
-        "mcq-images"
-      );
-      await fs.mkdir(uploadDir, { recursive: true });
-
-      const fileName = `${Date.now()}-${req.file.originalname}`;
-      await fs.writeFile(path.join(uploadDir, fileName), req.file.buffer);
-      image_url = `/uploads/mcq-images/${fileName}`;
+      // Upload to Supabase storage
+      const fileName = `mcq-${Date.now()}-${req.file.originalname.replace(
+        /\s+/g,
+        "-"
+      )}`;
+      image_url = await mcqStorage.uploadFile(req.file, fileName);
     }
 
     const question = await prisma.mCQQuestion.create({
@@ -54,22 +54,16 @@ exports.bulkCreateMCQQuestions = async (req, res) => {
     const { questions } = req.body;
     const teacher_id = req.user.user_id;
     const files = req.files || [];
-    const uploadDir = path.join(
-      process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
-      "mcq-images"
-    );
-    await fs.mkdir(uploadDir, { recursive: true });
 
     const createdQuestions = await prisma.$transaction(
       questions.map(async (q, index) => {
         let image_url = null;
         if (files[index]) {
-          const fileName = `${Date.now()}-${files[index].originalname}`;
-          await fs.writeFile(
-            path.join(uploadDir, fileName),
-            files[index].buffer
-          );
-          image_url = `/uploads/mcq-images/${fileName}`;
+          // Upload to Supabase storage
+          const fileName = `mcq-bulk-${Date.now()}-${files[
+            index
+          ].originalname.replace(/\s+/g, "-")}`;
+          image_url = await mcqStorage.uploadFile(files[index], fileName);
         }
 
         return prisma.mCQQuestion.create({
