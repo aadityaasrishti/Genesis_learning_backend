@@ -1,8 +1,6 @@
 const express = require("express");
 const router = express.Router();
 const multer = require("multer");
-const path = require("path");
-const jwt = require("jsonwebtoken");
 const { authMiddleware } = require("../middleware/authMiddleware");
 const { prisma } = require("../config/prisma");
 const {
@@ -28,6 +26,7 @@ const asyncHandler = (fn) => (req, res, next) => {
   });
 };
 
+// Configure multer
 const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
@@ -50,19 +49,19 @@ router.post(
   upload.single("file"),
   asyncHandler(createAssignment)
 );
+
 router.get(
   "/submissions/:assignment_id",
   authMiddleware(["teacher", "admin", "support_staff"]),
   asyncHandler(getSubmissions)
 );
+
 router.get(
   "/submission/:submission_id",
-  authMiddleware(["teacher", "admin", "support_staff"]), // Added admin role
+  authMiddleware(["teacher", "admin", "support_staff"]),
   asyncHandler(async (req, res) => {
     try {
       const { submission_id } = req.params;
-
-      console.log("Fetching submission details for ID:", submission_id);
 
       const submission = await prisma.assignmentSubmission.findUnique({
         where: { id: parseInt(submission_id) },
@@ -73,43 +72,21 @@ router.get(
       });
 
       if (!submission) {
-        console.log("No submission found for ID:", submission_id);
         return res.status(404).json({
           success: false,
           message: "Submission not found",
         });
       }
 
-      console.log("Successfully found submission:", submission.id);
-
-      // Get the student details since they're on the User model
-      const student = await prisma.user.findUnique({
-        where: { user_id: submission.student_id },
-        select: {
-          name: true,
-          email: true,
-        },
-      });
-
-      // Check if submission is late
       const isLate =
         new Date(submission.submitted_at) >
         new Date(submission.assignment.due_date);
 
-      // Format the submission to match the frontend interface
       const formattedSubmission = {
-        id: submission.id,
-        assignment_id: submission.assignment_id,
-        student_id: submission.student_id,
-        file_url: submission.file_url,
-        text_response: submission.text_response,
-        submitted_at: submission.submitted_at,
-        grade: submission.grade,
-        teacher_comment: submission.teacher_comment,
-        graded_at: submission.graded_at,
+        ...submission,
         student: {
-          name: student?.name,
-          email: student?.email,
+          name: submission.student?.name,
+          email: submission.student?.email,
         },
         assignment: submission.assignment,
         isLate,
@@ -167,43 +144,7 @@ router.post(
   asyncHandler(submitAssignment)
 );
 
-// Route for downloading assignment files
-router.get(
-  "/download/:filename",
-  authMiddleware(["teacher", "student", "admin", "support_staff"]), // Added admin role
-  asyncHandler(async (req, res) => {
-    const { filename } = req.params;
-    const filePath = path.join(
-      process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
-      "assignments",
-      filename
-    );
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    res.sendFile(filePath);
-  })
-);
-
-// Download submission file
-router.get(
-  "/submission-file/:filename",
-  authMiddleware(["teacher", "student", "admin", "support_staff"]),
-  asyncHandler(async (req, res) => {
-    const { filename } = req.params;
-    const filePath = path.join(
-      process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
-      "assignments",
-      filename
-    );
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    res.sendFile(filePath);
-  })
-);
-
-// Add admin-specific route
+// Admin route for viewing all assignments
 router.get(
   "/admin",
   authMiddleware(["admin", "support_staff"]),

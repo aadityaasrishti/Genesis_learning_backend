@@ -1,10 +1,15 @@
 const { prisma } = require("../config/prisma");
 const path = require("path");
 const fs = require("fs").promises;
+const StorageService = require("../utils/storageService");
 const {
   createAssignmentNotifications,
   createSubmissionNotification,
 } = require("../utils/notificationUtils");
+
+// Initialize storage service for assignments
+const assignmentStorage = new StorageService("assignments");
+assignmentStorage.createBucketIfNotExists().catch(console.error);
 
 // Ensure Prisma is connected before handling requests
 let prismaConnected = false;
@@ -39,12 +44,12 @@ const createAssignment = async (req, res) => {
     console.log("Found teacher:", teacher);
 
     if (req.file) {
-      const uploadDir = path.join(__dirname, "../../uploads/assignments");
-      await fs.mkdir(uploadDir, { recursive: true });
-
-      const fileName = `${Date.now()}-${req.file.originalname}`;
-      await fs.writeFile(path.join(uploadDir, fileName), req.file.buffer);
-      file_url = `/uploads/assignments/${fileName}`;
+      // Upload to Supabase storage
+      const fileName = `assignment-${teacher_id}-${Date.now()}-${req.file.originalname.replace(
+        /\s+/g,
+        "-"
+      )}`;
+      file_url = await assignmentStorage.uploadFile(req.file, fileName);
     }
 
     const assignment = await prisma.assignment.create({
@@ -251,15 +256,12 @@ const submitAssignment = async (req, res) => {
     const isLate = now > dueDate;
 
     if (req.file) {
-      const uploadDir = path.join(
-        process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
-        "assignments"
-      );
-      await fs.mkdir(uploadDir, { recursive: true });
-
-      const fileName = `${Date.now()}-${req.file.originalname}`;
-      await fs.writeFile(path.join(uploadDir, fileName), req.file.buffer);
-      file_url = `/uploads/assignments/${fileName}`;
+      // Upload to Supabase storage
+      const fileName = `submission-${student_id}-${assignment_id}-${Date.now()}-${req.file.originalname.replace(
+        /\s+/g,
+        "-"
+      )}`;
+      file_url = await assignmentStorage.uploadFile(req.file, fileName);
     }
 
     const submission = await prisma.assignmentSubmission.create({
@@ -493,26 +495,23 @@ const updateAssignment = async (req, res) => {
         success: false,
         message: "You don't have permission to edit this assignment",
       });
-    } // Handle file upload if provided
+    }
+
+    // Handle file upload if provided
     if (req.file) {
-      const uploadDir = path.join(
-        process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
-        "assignments"
-      );
-      await fs.mkdir(uploadDir, { recursive: true });
+      // Upload new file to Supabase storage
+      const fileName = `assignment-${
+        req.user.user_id
+      }-${Date.now()}-${req.file.originalname.replace(/\s+/g, "-")}`;
+      file_url = await assignmentStorage.uploadFile(req.file, fileName);
 
-      const fileName = `${Date.now()}-${req.file.originalname}`;
-      await fs.writeFile(path.join(uploadDir, fileName), req.file.buffer);
-      file_url = `/uploads/assignments/${fileName}`;
-
-      // Delete old file if exists
+      // Delete old file from Supabase if exists
       if (existingAssignment.file_url) {
         try {
-          const oldFilePath = path.join(
-            process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../.."),
-            existingAssignment.file_url
-          );
-          await fs.unlink(oldFilePath);
+          const oldFileName = existingAssignment.file_url.split("/").pop();
+          if (oldFileName) {
+            await assignmentStorage.deleteFile(oldFileName);
+          }
         } catch (error) {
           console.error("Error deleting old file:", error);
         }
@@ -554,7 +553,9 @@ const updateAssignment = async (req, res) => {
 const deleteAssignment = async (req, res) => {
   try {
     await ensurePrismaConnection();
-    const { id } = req.params; // Find assignment to verify teacher ownership and get file path
+    const { id } = req.params;
+
+    // Find assignment to verify teacher ownership and get file paths
     const assignment = await prisma.assignment.findUnique({
       where: { id: parseInt(id) },
       include: {
@@ -578,18 +579,9 @@ const deleteAssignment = async (req, res) => {
     // Delete assignment file if exists
     if (assignment.file_url) {
       try {
-        const filePath = path.join(
-          process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
-          "assignments",
-          assignment.file_url.split("/").pop() || ""
-        );
-        if (
-          await fs
-            .access(filePath)
-            .then(() => true)
-            .catch(() => false)
-        ) {
-          await fs.unlink(filePath);
+        const fileName = assignment.file_url.split("/").pop();
+        if (fileName) {
+          await assignmentStorage.deleteFile(fileName);
         }
       } catch (error) {
         console.error("Error deleting assignment file:", error);
@@ -602,20 +594,7 @@ const deleteAssignment = async (req, res) => {
         try {
           const fileName = submission.file_url.split("/").pop();
           if (fileName) {
-            const submissionPath = path.join(
-              process.env.UPLOAD_BASE_PATH ||
-                path.join(__dirname, "../../uploads"),
-              "assignments",
-              fileName
-            );
-            if (
-              await fs
-                .access(submissionPath)
-                .then(() => true)
-                .catch(() => false)
-            ) {
-              await fs.unlink(submissionPath);
-            }
+            await assignmentStorage.deleteFile(fileName);
           }
         } catch (error) {
           console.error("Error deleting submission file:", error);
