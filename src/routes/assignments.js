@@ -36,9 +36,8 @@ const upload = multer({
     } else {
       cb(new Error("Only PDF files are allowed"), false);
     }
-  },
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },  limits: {
+    fileSize: process.env.FILE_UPLOAD_LIMIT_SUBMISSION, // 25MB limit
   },
 });
 
