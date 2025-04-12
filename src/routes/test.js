@@ -10,7 +10,7 @@ const crypto = require("crypto");
 
 // Ensure uploads directory exists
 const UPLOADS_DIR =
-  process.env.UPLOAD_BASE_PATH || path.join(process.cwd(), "uploads");
+  process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads");
 const SUBMISSIONS_DIR = path.join(UPLOADS_DIR, "submissions");
 const TESTS_DIR = path.join(UPLOADS_DIR, "tests");
 
