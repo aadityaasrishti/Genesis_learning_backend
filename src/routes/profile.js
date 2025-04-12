@@ -2,65 +2,41 @@ const express = require("express");
 const router = express.Router();
 const multer = require("multer");
 const path = require("path");
-const fs = require("fs");
 const { prisma } = require("../config/prisma");
 const { authMiddleware } = require("../middleware/authMiddleware");
+const StorageService = require("../utils/storageService");
 
-// Create profile images upload directory if it doesn't exist
-const uploadDir = path.join(
-  process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
-  "profile-images"
-);
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+// Initialize Supabase storage for profile images
+const profileStorage = new StorageService("profile-images");
+profileStorage.createBucketIfNotExists().catch(console.error);
 
-// Configure multer for profile image uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    // Handle both SVG and regular image files
-    const ext =
-      file.mimetype === "image/svg+xml"
-        ? ".svg"
-        : path.extname(file.originalname);
-    cb(null, "profile-" + uniqueSuffix + ext);
-  },
-});
-
-const fileFilter = (req, file, cb) => {
-  // Accept image files and SVG
-  if (file.mimetype.startsWith("image/") || file.mimetype === "image/svg+xml") {
-    cb(null, true);
-  } else {
-    cb(new Error("Only image files are allowed!"), false);
-  }
-};
-
+// Configure multer to use memory storage for Supabase upload
+const storage = multer.memoryStorage();
 const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
+  storage,
+  fileFilter: (req, file, cb) => {
+    if (
+      file.mimetype.startsWith("image/") ||
+      file.mimetype === "image/svg+xml"
+    ) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed!"), false);
+    }
+  },
   limits: {
-    fileSize: parseInt(process.env.FILE_UPLOAD_LIMIT_PROFILE) || 5242880, // Default to 5MB if not set
+    fileSize: parseInt(process.env.FILE_UPLOAD_LIMIT_PROFILE) || 5242880, // 5MB limit
   },
 });
 
 // Helper function to delete old profile image
 const deleteOldProfileImage = async (imageUrl) => {
-  if (!imageUrl) return;
+  if (!imageUrl || !imageUrl.includes("profile-images")) return;
 
   try {
-    const relativePath = imageUrl.split("/api/uploads/")[1];
-    if (!relativePath) return;
-    const fullPath = path.join(
-      process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
-      relativePath
-    );
-    if (fs.existsSync(fullPath)) {
-      fs.unlinkSync(fullPath);
+    const fileName = imageUrl.split("/").pop();
+    if (fileName) {
+      await profileStorage.deleteFile(fileName);
     }
   } catch (error) {
     console.error("Error deleting old profile image:", error);
@@ -90,11 +66,11 @@ router.post(
         await deleteOldProfileImage(currentUser.profile_image_url);
       }
 
-      // Store the file path relative to uploads directory
-      const relativePath = req.file.path
-        .replace(/\\/g, "/")
-        .split("uploads/")[1];
-      const imageUrl = `/api/uploads/${relativePath}`;
+      // Upload to Supabase storage
+      const fileName = `profile-${userId}-${Date.now()}${path.extname(
+        req.file.originalname
+      )}`;
+      const imageUrl = await profileStorage.uploadFile(req.file, fileName);
 
       // Update user's profile_image_url
       await prisma.user.update({
@@ -125,7 +101,7 @@ router.delete(
       });
 
       if (user?.profile_image_url) {
-        // Delete the file
+        // Delete the file from Supabase storage
         await deleteOldProfileImage(user.profile_image_url);
 
         // Update user record
