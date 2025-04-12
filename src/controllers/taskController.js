@@ -1,7 +1,10 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
-const fs = require("fs").promises;
-const path = require("path");
+const StorageService = require("../utils/storageService");
+
+// Initialize storage service for student requests
+const requestStorage = new StorageService("student-requests");
+requestStorage.createBucketIfNotExists().catch(console.error);
 
 // Log middleware for debugging
 const logRequest = (prefix) => (req, res, next) => {
@@ -34,18 +37,12 @@ exports.createStudentRequest = async (req, res) => {
 
     let image_url = null;
     if (req.file) {
-      // Use absolute path for storage but relative path for database
-      const relativePath = `/uploads/student-requests/${req.file.filename}`;
-      image_url = relativePath;
-
-      // Ensure the file was saved  
-      const absolutePath = path.join(process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../.."), relativePath);
-      try {
-        await fs.access(absolutePath);
-      } catch (error) {
-        console.error("File not saved:", error);
-        return res.status(500).json({ error: "Failed to save uploaded file" });
-      }
+      // Upload to Supabase storage
+      const fileName = `request-${student_id}-${Date.now()}-${req.file.originalname.replace(
+        /\s+/g,
+        "-"
+      )}`;
+      image_url = await requestStorage.uploadFile(req.file, fileName);
     }
 
     const request = await prisma.studentRequest.create({
@@ -213,14 +210,13 @@ exports.deleteStudentRequest = async (req, res) => {
       return res
         .status(403)
         .json({ error: "Not authorized to delete this request" });
-    }
-
-    // Delete associated image if it exists
-    if (request.image_url) {
+    } // Delete associated image from Supabase if it exists
+    if (request.image_url && request.image_url.includes("student-requests")) {
       try {
-        const imagePath = path.join(__dirname, "../..", request.image_url);
-        await fs.unlink(imagePath);
+        const fileName = request.image_url.split("/").pop();
+        await requestStorage.deleteFile(fileName);
       } catch (error) {
+        console.error("Error deleting file from storage:", error);
         // Continue with request deletion even if image deletion fails
       }
     }
