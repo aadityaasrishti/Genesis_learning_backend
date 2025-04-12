@@ -1,7 +1,10 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
-const fs = require("fs").promises;
-const path = require("path");
+const StorageService = require("../utils/storageService");
+
+// Initialize storage service for student requests
+const studentRequestStorage = new StorageService("student-requests");
+studentRequestStorage.createBucketIfNotExists().catch(console.error);
 
 // Log middleware for debugging
 const logRequest = (prefix) => (req, res, next) => {
@@ -34,18 +37,12 @@ exports.createStudentRequest = async (req, res) => {
 
     let image_url = null;
     if (req.file) {
-      // Use absolute path for storage but relative path for database
-      const relativePath = `/uploads/student-requests/${req.file.filename}`;
-      image_url = relativePath;
-
-      // Ensure the file was saved  
-      const absolutePath = path.join(process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../.."), relativePath);
-      try {
-        await fs.access(absolutePath);
-      } catch (error) {
-        console.error("File not saved:", error);
-        return res.status(500).json({ error: "Failed to save uploaded file" });
-      }
+      // Upload to Supabase storage
+      const fileName = `request-${Date.now()}-${req.file.originalname.replace(
+        /\s+/g,
+        "-"
+      )}`;
+      image_url = await studentRequestStorage.uploadFile(req.file, fileName);
     }
 
     const request = await prisma.studentRequest.create({
@@ -148,44 +145,60 @@ exports.updateRequestStatus = async (req, res) => {
     const validStatuses = ["PENDING", "APPROVED", "REJECTED"];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
-        error: `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
+        error: "Invalid status",
+        message: `Status must be one of: ${validStatuses.join(", ")}`,
       });
     }
 
-    // First check if request exists
-    const existingRequest = await prisma.studentRequest.findUnique({
+    const request = await prisma.studentRequest.update({
       where: { id: requestId },
+      data: { status },
+      include: {
+        student: {
+          select: {
+            name: true,
+            user_id: true,
+          },
+        },
+      },
     });
 
-    if (!existingRequest) {
-      return res
-        .status(404)
-        .json({ error: `Request with ID ${requestId} not found` });
+    // Create notification for student
+    await prisma.notification.create({
+      data: {
+        user_id: request.student.user_id,
+        message: `Your request "${
+          request.title
+        }" has been ${status.toLowerCase()}`,
+        type: "student_request",
+      },
+    });
+
+    // Create notifications for admins and support staff
+    const adminStaff = await prisma.user.findMany({
+      where: {
+        role: {
+          in: ["admin", "support_staff"],
+        },
+      },
+      select: {
+        user_id: true,
+      },
+    });
+
+    if (adminStaff.length > 0) {
+      await prisma.notification.createMany({
+        data: adminStaff.map((user) => ({
+          user_id: user.user_id,
+          message: `Student request "${
+            request.title
+          }" has been ${status.toLowerCase()}`,
+          type: "student_request",
+        })),
+      });
     }
 
-    // Update status in a transaction
-    const updatedRequest = await prisma.$transaction(async (tx) => {
-      // Update request
-      const updated = await tx.studentRequest.update({
-        where: { id: requestId },
-        data: { status },
-      });
-
-      // Create notification
-      await tx.notification.create({
-        data: {
-          user_id: updated.student_id,
-          message: `Your request "${
-            updated.title
-          }" has been ${status.toLowerCase()}`,
-          type: "student_request_update",
-        },
-      });
-
-      return updated;
-    });
-
-    res.json(updatedRequest);
+    res.json(request);
   } catch (error) {
     res.status(500).json({
       error: "Failed to update request status",
@@ -215,12 +228,15 @@ exports.deleteStudentRequest = async (req, res) => {
         .json({ error: "Not authorized to delete this request" });
     }
 
-    // Delete associated image if it exists
+    // Delete associated image from Supabase if it exists
     if (request.image_url) {
       try {
-        const imagePath = path.join(__dirname, "../..", request.image_url);
-        await fs.unlink(imagePath);
+        const fileName = request.image_url.split("/").pop();
+        if (fileName) {
+          await studentRequestStorage.deleteFile(fileName);
+        }
       } catch (error) {
+        console.error("Error deleting image from storage:", error);
         // Continue with request deletion even if image deletion fails
       }
     }
@@ -263,6 +279,7 @@ exports.createTask = async (req, res) => {
 
     res.status(201).json(task);
   } catch (error) {
+    console.error("Error creating task:", error);
     res.status(500).json({ error: "Failed to create task" });
   }
 };
@@ -272,62 +289,27 @@ exports.updateTaskStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    console.log("Updating task:", { id, status });
-
-    if (!id || isNaN(parseInt(id))) {
-      return res.status(400).json({ error: "Invalid task ID" });
-    }
-
-    if (!status) {
-      return res.status(400).json({ error: "Status is required" });
-    }
-
-    // First check if the task exists and is not already completed
-    const existingTask = await prisma.teacherTask.findUnique({
-      where: { id: parseInt(id) },
-      include: {
-        teacher: true,
-      },
-    });
-
-    console.log("Existing task:", existingTask);
-
-    if (!existingTask) {
-      return res.status(404).json({ error: "Task not found" });
-    }
-
-    if (existingTask.status === "COMPLETED") {
-      return res.status(400).json({ error: "Cannot update a completed task" });
-    }
-
-    // Validate status value
-    const validStatuses = ["PENDING", "IN_PROGRESS", "COMPLETED"];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({
-        error: `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
-      });
-    }
-
-    // Get the teacher's name
-    const teacher = await prisma.user.findUnique({
-      where: { user_id: existingTask.teacher_id },
-    });
-
     const task = await prisma.teacherTask.update({
       where: { id: parseInt(id) },
       data: { status },
       include: {
-        teacher: true,
+        teacher: {
+          select: {
+            name: true,
+          },
+        },
       },
     });
 
-    console.log("Updated task:", task);
-
-    // Send notifications to admins and support staff
+    // Get admin and support staff for notifications
     const adminStaff = await prisma.user.findMany({
       where: {
-        OR: [{ role: "admin" }, { role: "support_staff" }],
-        is_active: true,
+        role: {
+          in: ["admin", "support_staff"],
+        },
+      },
+      select: {
+        user_id: true,
       },
     });
 
@@ -337,7 +319,7 @@ exports.updateTaskStatus = async (req, res) => {
         data: adminStaff.map((staff) => ({
           user_id: staff.user_id,
           message: `Task "${task.title}" status updated to ${status} by ${
-            teacher?.name || "Unknown Teacher"
+            task.teacher?.name || "Unknown Teacher"
           }`,
           type: "task_update",
         })),
@@ -367,6 +349,7 @@ exports.getTeacherTasks = async (req, res) => {
     });
     res.json(tasks);
   } catch (error) {
+    console.error("Error fetching teacher tasks:", error);
     res.status(500).json({ error: "Failed to fetch tasks" });
   }
 };
@@ -374,9 +357,6 @@ exports.getTeacherTasks = async (req, res) => {
 exports.getAllTasks = async (req, res) => {
   try {
     const tasks = await prisma.teacherTask.findMany({
-      orderBy: {
-        created_at: "desc",
-      },
       include: {
         teacher: {
           select: {
@@ -384,9 +364,13 @@ exports.getAllTasks = async (req, res) => {
           },
         },
       },
+      orderBy: {
+        due_date: "asc",
+      },
     });
     res.json(tasks);
   } catch (error) {
-    res.status(500).json({ error: "Failed to fetch all tasks" });
+    console.error("Error fetching all tasks:", error);
+    res.status(500).json({ error: "Failed to fetch tasks" });
   }
 };

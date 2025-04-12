@@ -1,11 +1,7 @@
 const express = require("express");
-const fs = require("fs");
-const path = require("path");
 const router = express.Router();
 const { authMiddleware } = require("../middleware/authMiddleware");
 const multer = require("multer");
-const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
 const {
   createStudentRequest,
   getStudentRequests,
@@ -18,49 +14,17 @@ const {
   getAllTasks,
 } = require("../controllers/taskController");
 
-// Create uploads directory if it doesn't exist
-const uploadDir = path.join(
-  process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
-  "student-requests"
-);
-
-// Ensure upload directory exists
-try {
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-  }
-  // Test write permissions
-  fs.accessSync(uploadDir, fs.constants.W_OK);
-} catch (error) {
-  console.error("Upload directory error:", error);
-  // Create the directory with full permissions
-  fs.mkdirSync(uploadDir, { recursive: true, mode: 0o777 });
-}
-
-// Configure multer for image upload
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    const ext = path.extname(file.originalname);
-    cb(null, `${uniqueSuffix}${ext}`);
-  },
-});
-
-const fileFilter = (req, file, cb) => {
-  // Accept only image files
-  if (file.mimetype.startsWith("image/")) {
-    cb(null, true);
-  } else {
-    cb(new Error("Only image files are allowed!"), false);
-  }
-};
-
+// Configure multer to use memory storage
 const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
+  storage: multer.memoryStorage(),
+  fileFilter: (req, file, cb) => {
+    // Accept only image files
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed!"), false);
+    }
+  },
   limits: {
     fileSize: parseInt(process.env.FILE_UPLOAD_LIMIT_TASKS) || 5242880, // Default to 5MB if not set
   },
@@ -141,28 +105,15 @@ router.get(
   async (req, res) => {
     try {
       const teachers = await prisma.user.findMany({
-        where: {
-          role: "teacher",
-          is_active: true,
-        },
-        include: {
-          teacher: true,
-        },
-        orderBy: {
-          name: "asc",
+        where: { role: "TEACHER" },
+        select: {
+          user_id: true,
+          name: true,
         },
       });
-
-      const formattedTeachers = teachers.map((teacher) => ({
-        user_id: teacher.user_id,
-        name: teacher.name,
-        subject: teacher.teacher?.subject,
-        class_assigned: teacher.teacher?.class_assigned,
-      }));
-
-      res.json(formattedTeachers);
+      res.json(teachers);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch teachers" });
+      res.status(500).json({ error: "Failed to fetch teachers list" });
     }
   }
 );
