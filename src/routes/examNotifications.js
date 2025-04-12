@@ -73,30 +73,6 @@ router.delete(
   deleteExamNotification
 );
 
-// Add syllabus download route
-router.get(
-  "/download/:filename",
-  authMiddleware(["student", "teacher"]),
-  async (req, res) => {
-    try {
-      const { filename } = req.params;
-      const filePath = path.join(
-        process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
-        "syllabi",
-        filename
-      );
-
-      res.download(filePath, filename, (err) => {
-        if (err) {
-          console.error("Download error:", err);
-          res.status(404).json({ error: "File not found" });
-        }
-      });
-    } catch (error) {
-      console.error("Error downloading file:", error);
-      res.status(500).json({ error: "Failed to download file" });
-    }
-  }
-);
+// Note: Download route removed as files are now served directly from Supabase storage
 
 module.exports = router;

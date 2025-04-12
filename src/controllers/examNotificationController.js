@@ -2,6 +2,10 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const path = require("path");
 const fs = require("fs").promises;
+const StorageService = require("../utils/storageService");
+
+const syllabiStorage = new StorageService("syllabi");
+syllabiStorage.createBucketIfNotExists().catch(console.error);
 
 const createExamNotification = async (req, res) => {
   try {
@@ -46,19 +50,15 @@ const createExamNotification = async (req, res) => {
           ", "
         )}`,
       });
-    }
-
-    // Handle syllabus file upload
+    } // Handle syllabus file upload
     let syllabus_url = null;
     if (req.file) {
       try {
-        const uploadDir = path.join(__dirname, "../../uploads/syllabi");
-        await fs.mkdir(uploadDir, { recursive: true });
-
-        const fileName = `${Date.now()}-${req.file.originalname}`;
-        const filePath = path.join(uploadDir, fileName);
-        await fs.writeFile(filePath, req.file.buffer);
-        syllabus_url = `/uploads/syllabi/${fileName}`;
+        const fileName = `${student_id}-${Date.now()}-${req.file.originalname.replace(
+          /\s+/g,
+          "-"
+        )}`;
+        syllabus_url = await syllabiStorage.uploadFile(req.file, fileName);
 
         // Create exam notification
         const notification = await prisma.examNotification.create({
@@ -222,17 +222,13 @@ const deleteExamNotification = async (req, res) => {
       return res.status(403).json({
         error: "You don't have permission to delete this notification",
       });
-    }
-
-    // Delete syllabus file if exists
+    } // Delete syllabus file if exists
     if (notification.syllabus_url) {
-      const filePath = path.join(
-        __dirname,
-        "../../uploads/syllabi",
-        notification.syllabus_url.split("/").pop() || ""
-      );
       try {
-        await fs.unlink(filePath);
+        const fileName = notification.syllabus_url.split("/").pop();
+        if (fileName) {
+          await syllabiStorage.deleteFile(fileName);
+        }
       } catch (error) {
         console.error("Error deleting syllabus file:", error);
       }
