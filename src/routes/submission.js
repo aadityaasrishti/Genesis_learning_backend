@@ -2,66 +2,44 @@ const express = require("express");
 const router = express.Router();
 const { prisma } = require("../config/prisma");
 const authMiddleware = require("../middleware/auth");
-const path = require("path");
-const fs = require("fs");
-const busboy = require("busboy");
+const StorageService = require("../utils/storageService");
+const multer = require("multer");
 
-const handleFileUpload = (req, res, next) => {
-  if (req.method !== "POST") {
-    return next();
-  }
+// Initialize Supabase storage service
+const submissionStorage = new StorageService("submissions");
 
-  const bb = busboy({
-    headers: req.headers,
-    limits: {
-      fileSize: parseInt(process.env.FILE_UPLOAD_LIMIT_SUBMISSION) || 52428800, // Default to 50MB if not set
-    },
-  });
+// Create bucket if it doesn't exist
+submissionStorage.createBucketIfNotExists().catch(console.error);
 
-  const fields = {};
-  const uploadPromise = new Promise((resolve, reject) => {
-    bb.on("file", (name, file, info) => {
-      const saveTo = path.join(
-        process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
-        "submissions",
-        `${Date.now()}-${info.filename}`
-      );
-      const writeStream = fs.createWriteStream(saveTo);
-
-      file.on("limit", () => {
-        reject(new Error("File size limit exceeded"));
+// Configure multer for memory storage
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: parseInt(process.env.FILE_UPLOAD_LIMIT_SUBMISSION) || 52428800, // Default to 50MB if not set
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === "application/pdf") {
+      cb(null, true);
+    } else {
+      cb(new Error("Only PDF files are allowed"), false);
+    }
+  },
+}).single("file");
+const handleUpload = (req, res, next) => {
+  upload(req, res, function (err) {
+    if (err instanceof multer.MulterError) {
+      return res.status(400).json({
+        error: err.message,
+        code: err.code,
       });
-
-      file.pipe(writeStream);
-
-      writeStream.on("finish", () => {
-        fields[name] = {
-          filename: path.basename(saveTo),
-          mimetype: info.mimeType,
-          path: saveTo,
-        };
+    } else if (err) {
+      return res.status(500).json({
+        error: "File upload failed",
+        details: err.message,
       });
-    });
-
-    bb.on("field", (name, val) => {
-      fields[name] = val;
-    });
-
-    bb.on("finish", () => resolve(fields));
-    bb.on("error", reject);
+    }
+    next();
   });
-
-  uploadPromise
-    .then((fields) => {
-      req.body = fields;
-      next();
-    })
-    .catch((err) => {
-      console.error("Upload error:", err);
-      res.status(400).json({ error: err.message });
-    });
-
-  req.pipe(bb);
 };
 
 // Get all submissions for a test (teacher only)
@@ -154,17 +132,22 @@ router.post(
           .status(400)
           .json({ error: "You have already submitted this test" });
       }
-
-      if (!req.body.submission) {
+      if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
       }
+
+      // Upload to Supabase storage
+      const fileName = `test-submission-${
+        req.user.id
+      }-${testId}-${Date.now()}-${req.file.originalname.replace(/\s+/g, "-")}`;
+      const fileUrl = await submissionStorage.uploadFile(req.file, fileName);
 
       // Create submission record
       const submission = await prisma.testSubmission.create({
         data: {
           testId: parseInt(testId),
           studentId: req.user.id,
-          content: req.body.submission.filename,
+          content: fileUrl,
           isLate: isLate,
         },
       });
@@ -232,21 +215,20 @@ router.delete("/:submissionId", authMiddleware, async (req, res) => {
 
     if (!submission) {
       return res.status(404).json({ error: "Submission not found" });
-    }
-
-    // Only allow teachers or the submission owner to delete
+    } // Only allow teachers or the submission owner to delete
     if (req.user.role !== "TEACHER" && submission.studentId !== req.user.id) {
       return res
         .status(403)
         .json({ error: "Not authorized to delete this submission" });
-    } // Delete the file
-    const filePath = path.join(
-      process.env.UPLOAD_BASE_PATH || path.join(__dirname, "../../uploads"),
-      "submissions",
-      submission.content
-    );
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+    }
+
+    // Delete the file from Supabase storage
+    if (submission.content) {
+      try {
+        await submissionStorage.deleteFile(submission.content.split("/").pop());
+      } catch (error) {
+        console.error("Error deleting file from storage:", error);
+      }
     }
 
     // Delete the database record

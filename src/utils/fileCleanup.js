@@ -1,6 +1,5 @@
-const fs = require("fs").promises;
-const path = require("path");
 const { prisma } = require("../config/prisma");
+const StorageService = require("./storageService");
 
 const deleteFile = async (url) => {
   try {
@@ -22,19 +21,32 @@ const deleteFile = async (url) => {
 };
 
 const deleteTestFiles = async (test) => {
-  if (test.type === "PDF") {
-    await deleteFile(test.content);
+  try {
+    // Delete test content if it's a PDF
+    if (test.type === "PDF" && test.content) {
+      await deleteFile(test.content);
+    }
+
+    // Get all submissions for this test
+    const submissions = await prisma.testSubmission.findMany({
+      where: { test_id: test.id },
+      select: { content: true },
+    });
+
+    // Delete all submission files in parallel
+    await Promise.all(
+      submissions
+        .filter((submission) => submission.content)
+        .map((submission) => deleteFile(submission.content))
+    );
+
+    console.log(
+      `Cleaned up files for test ${test.id} and ${submissions.length} submissions`
+    );
+  } catch (error) {
+    console.error(`Error cleaning up test files for test ${test.id}:`, error);
+    throw error;
   }
-
-  // Delete all associated submission files
-  const submissions = await prisma.testSubmission.findMany({
-    where: { test_id: test.id },
-  });
-
-  // Delete all submission files in parallel
-  await Promise.all(
-    submissions.map((submission) => deleteFile(submission.content))
-  );
 };
 
 module.exports = {

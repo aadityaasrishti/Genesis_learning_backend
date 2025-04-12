@@ -26,10 +26,8 @@ const dailyChallengeRoutes = require("./src/routes/dailyChallenge");
 const cron = require("node-cron");
 const sendAssignmentReminders = require("./src/scripts/assignmentReminders");
 const sendFeeReminders = require("./src/scripts/feeReminders");
-const cleanupFiles = require("./src/scripts/cleanupFiles");
 const checkDemoUsers = require("./src/scripts/demoUserCheck");
 const checkInactiveUsers = require("./src/scripts/inactivityCheck");
-const initializeUploadDirectories = require("./src/scripts/initDirs");
 const { scheduleFeeReminders } = require("./src/scripts/feeReminders");
 const profileRoutes = require("./src/routes/profile");
 
@@ -37,9 +35,6 @@ const app = express();
 
 // Initialize app
 const initialize = async () => {
-  // Initialize upload directories
-  initializeUploadDirectories();
-
   // Initialize database connection
   try {
     await prisma.$connect();
@@ -102,94 +97,7 @@ app.use("/api/schedules", scheduleRoutes);
 app.use("/api/expenses", require("./src/routes/expenses")); // Add expenses route
 app.use("/api/daily-challenges", dailyChallengeRoutes);
 
-// URL rewrite middleware for handling malformed upload URLs
-app.use((req, res, next) => {
-  if (req.url.startsWith("/apiuploads/")) {
-    req.url = "/api/uploads/" + req.url.slice(11);
-  }
-  next();
-});
-
-// Unified static file serving for uploads with comprehensive headers
-app.use(
-  "/api/uploads",
-  express.static(
-    process.env.UPLOAD_BASE_PATH || path.join(__dirname, "uploads"),
-    {
-      setHeaders: (res, filePath) => {
-        // Set common CORS and security headers
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-        res.setHeader(
-          "Access-Control-Allow-Headers",
-          "Origin, X-Requested-With, Content-Type, Accept, Range"
-        );
-        res.setHeader(
-          "Access-Control-Expose-Headers",
-          "Content-Range, Accept-Ranges, Content-Length"
-        );
-        res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-        res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
-        res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
-        res.setHeader("X-Content-Type-Options", "nosniff");
-        res.setHeader("Accept-Ranges", "bytes");
-
-        // Set content types and specific headers based on file type
-        if (filePath.endsWith(".pdf")) {
-          res.setHeader("Content-Type", "application/pdf");
-          res.setHeader("Content-Disposition", "inline");
-          res.setHeader(
-            "Content-Security-Policy",
-            "default-src 'self' blob: data:; object-src 'self' blob: data:; frame-ancestors 'self' *"
-          );
-        } else if (filePath.match(/\.(jpg|jpeg)$/i)) {
-          res.setHeader("Content-Type", "image/jpeg");
-        } else if (filePath.match(/\.png$/i)) {
-          res.setHeader("Content-Type", "image/png");
-        } else if (filePath.match(/\.svg$/i)) {
-          res.setHeader("Content-Type", "image/svg+xml");
-        } else if (filePath.match(/\.gif$/i)) {
-          res.setHeader("Content-Type", "image/gif");
-        } else if (filePath.match(/\.mp4$/i)) {
-          res.setHeader("Content-Type", "video/mp4");
-        } else if (filePath.match(/\.webm$/i)) {
-          res.setHeader("Content-Type", "video/webm");
-        } else if (filePath.endsWith(".docx")) {
-          res.setHeader(
-            "Content-Type",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          );
-          res.setHeader("Content-Disposition", "attachment");
-        }
-
-        // Set cache control - one month for most files
-        res.setHeader("Cache-Control", "public, max-age=2592000");
-      },
-      fallthrough: true,
-    }
-  )
-);
-
-// Detailed 404 handler for static files
-app.use((req, res, next) => {
-  if (
-    req.url.startsWith("/api/uploads/") ||
-    req.url.startsWith("/apiuploads/")
-  ) {
-    console.error("File not found:", {
-      url: req.url,
-      method: req.method,
-      originalUrl: req.originalUrl,
-      path: req.path,
-    });
-    return res.status(404).json({
-      error: "File not found",
-      path: req.url,
-      message: "The requested file does not exist",
-    });
-  }
-  next();
-});
+// All file serving is now handled through Supabase storage URLs
 
 // Schedule assignment reminders
 cron.schedule("0 9 * * *", () => {
@@ -203,11 +111,7 @@ cron.schedule("0 10 * * *", () => {
   sendFeeReminders();
 });
 
-// Schedule cleanup to run every day at midnight
-cron.schedule("0 0 * * *", () => {
-  console.log("Running file cleanup...");
-  cleanupFiles();
-});
+// File cleanup is now handled automatically by Supabase Storage lifecycle policies
 
 // Schedule demo user check to run every day at 1 AM
 cron.schedule("0 1 * * *", () => {
